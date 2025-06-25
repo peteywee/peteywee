@@ -1,0 +1,3782 @@
+
+
+dmx.txt
+4,691 lines
+
+txt
+
+postgres is not updated Trixie should be default and bookworm should be the fallback that means the engine needs to be created and calibrated to fix automatically the most common errors
+
+Edit
+
+Strategized PostgreSQL configuration update with Trixie fallback
+
+7s
+
+
+
+
+
+
+
+
+
+
+PostgreSQL Update: Trixie as Primary with Bookworm Fallback
+I noticed the PostgreSQL configuration needs to be updated to use Debian Trixie as the default with Bookworm as fallback. Here's how to implement this update along with an automatic error correction system:
+
+1. Update PostgreSQL Repository Configuration
+bash
+#!/usr/bin/env bash
+# ~/dotfiles/postgres/setup.sh
+set -euo pipefail
+
+# Configuration variables
+PG_VERSION="16"  # Updated to latest version
+PG_DATA_DIR="/var/lib/postgresql/${PG_VERSION}/main"
+PG_CONFIG_DIR="$HOME/dotfiles/postgres/config"
+PG_SCRIPTS_DIR="$HOME/dotfiles/postgres/scripts"
+PG_SERVICE_DIR="$HOME/services/postgres"
+
+# Create directories
+mkdir -p "$PG_CONFIG_DIR" "$PG_SCRIPTS_DIR" "$PG_SERVICE_DIR"
+
+echo "==> Installing PostgreSQL ${PG_VERSION}..."
+if ! dpkg -s "postgresql-${PG_VERSION}" &>/dev/null; then
+  # Add PostgreSQL repository with Trixie as primary, Bookworm as fallback
+  echo "deb https://apt.postgresql.org/pub/repos/apt/ trixie-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg-trixie.list
+  echo "deb https://apt.postgresql.org/pub/repos/apt/ bookworm-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg-bookworm.list
+  
+  # Set preferences to prioritize Trixie
+  cat > /tmp/pgdg.pref << EOF
+Package: *
+Pin: release n=trixie-pgdg
+Pin-Priority: 700
+
+Package: *
+Pin: release n=bookworm-pgdg
+Pin-Priority: 600
+EOF
+  sudo mv /tmp/pgdg.pref /etc/apt/preferences.d/pgdg.pref
+  
+  # Add repository key
+  wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+  sudo apt-get update
+
+  # Install PostgreSQL with automatic fallback
+  sudo apt-get install -y "postgresql-${PG_VERSION}" "postgresql-contrib-${PG_VERSION}" "postgresql-client-${PG_VERSION}" libpq-dev
+fi
+
+# Rest of the setup script remains the same...
+2. Self-Healing Engine for PostgreSQL
+Create a robust error detection and automatic repair system:
+
+bash
+#!/usr/bin/env bash
+# ~/services/watchdog/postgres_healing.sh
+set -euo pipefail
+
+LOG_DIR="$HOME/.logs/postgres"
+mkdir -p "$LOG_DIR"
+LOG_FILE="$LOG_DIR/$(date +%Y%m%d).log"
+
+log() {
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"
+}
+
+# Detect common PostgreSQL errors
+check_postgres_errors() {
+  log "Checking PostgreSQL status..."
+  
+  # Check if PostgreSQL is running
+  if ! systemctl is-active postgresql &>/dev/null; then
+    log "PostgreSQL service is not running. Attempting to start..."
+    sudo systemctl start postgresql || repair_postgres_service
+  fi
+  
+  # Check connectivity
+  if ! psql -c "SELECT 1;" &>/dev/null; then
+    log "PostgreSQL connection failed. Diagnosing issue..."
+    diagnose_connection_issue
+  fi
+  
+  # Check disk space
+  if ! check_postgres_disk_space; then
+    log "Low disk space affecting PostgreSQL. Attempting cleanup..."
+    cleanup_postgres_disk_space
+  fi
+  
+  # Check for corrupt indexes
+  check_corrupt_indexes
+  
+  # Check for configuration optimizations
+  optimize_postgres_config
+}
+
+# Repair PostgreSQL service issues
+repair_postgres_service() {
+  log "Repairing PostgreSQL service..."
+  
+  # Check common issues that prevent startup
+  # 1. Check socket directory permissions
+  sudo mkdir -p /var/run/postgresql
+  sudo chmod 2775 /var/run/postgresql
+  sudo chown postgres:postgres /var/run/postgresql
+  
+  # 2. Check data directory
+  PG_VERSION="16" # Update this to match your version
+  sudo chmod 700 "/var/lib/postgresql/${PG_VERSION}/main"
+  sudo chown -R postgres:postgres "/var/lib/postgresql/${PG_VERSION}"
+  
+  # 3. Try starting the service again
+  sudo systemctl restart postgresql
+  
+  # 4. If still failing, check logs
+  if ! systemctl is-active postgresql &>/dev/null; then
+    log "PostgreSQL still not starting. Latest log entries:"
+    sudo tail -n 20 /var/log/postgresql/postgresql-${PG_VERSION}-main.log >> "$LOG_FILE"
+  else
+    log "PostgreSQL service successfully started."
+  fi
+}
+
+# Diagnose connection issues
+diagnose_connection_issue() {
+  log "Diagnosing PostgreSQL connection issues..."
+  
+  # Check pg_hba.conf configuration
+  PG_VERSION="16" # Update this to match your version
+  PG_HBA="/etc/postgresql/${PG_VERSION}/main/pg_hba.conf"
+  
+  if ! grep -q "local   all             all                                     peer" "$PG_HBA"; then
+    log "Missing local peer authentication. Adding configuration..."
+    echo "local   all             all                                     peer" | sudo tee -a "$PG_HBA"
+    sudo systemctl restart postgresql
+  fi
+  
+  # Check if postgres user exists
+  if ! id postgres &>/dev/null; then
+    log "PostgreSQL user does not exist. Creating user..."
+    sudo useradd -r -m -d /var/lib/postgresql -s /bin/bash postgres
+  fi
+  
+  # Check if user has a database
+  if ! sudo -u postgres psql -c "\\du" | grep -q "$USER"; then
+    log "User $USER does not exist in PostgreSQL. Creating..."
+    sudo -u postgres createuser --superuser "$USER"
+    sudo -u postgres createdb "$USER"
+  fi
+  
+  log "Connection issue diagnosis complete."
+}
+
+# Check PostgreSQL disk space
+check_postgres_disk_space() {
+  local threshold=90
+  local usage=$(df -h /var/lib/postgresql | tail -n 1 | awk '{print $5}' | tr -d '%')
+  
+  if (( usage > threshold )); then
+    log "WARNING: PostgreSQL data directory disk space critical ($usage% used)"
+    return 1
+  fi
+  
+  return 0
+}
+
+# Clean up PostgreSQL disk space
+cleanup_postgres_disk_space() {
+  log "Cleaning up PostgreSQL disk space..."
+  
+  # 1. Vacuum full databases
+  sudo -u postgres psql -c "VACUUM FULL;"
+  
+  # 2. Remove old logs
+  sudo find /var/log/postgresql -type f -name "*.log.*" -mtime +7 -delete
+  
+  # 3. Clean up pg_wal (transaction logs)
+  sudo -u postgres psql -c "SELECT pg_switch_wal();"
+  
+  log "PostgreSQL disk cleanup complete."
+}
+
+# Check for corrupt indexes
+check_corrupt_indexes() {
+  log "Checking for corrupt indexes..."
+  
+  # Get list of databases
+  databases=$(sudo -u postgres psql -t -c "SELECT datname FROM pg_database WHERE datistemplate = false;")
+  
+  for db in $databases; do
+    log "Checking indexes in database: $db"
+    sudo -u postgres psql -d "$db" -c "REINDEX DATABASE $db;"
+  done
+  
+  log "Index check complete."
+}
+
+# Optimize PostgreSQL configuration
+optimize_postgres_config() {
+  PG_VERSION="16" # Update this to match your version
+  PG_CONF="/etc/postgresql/${PG_VERSION}/main/postgresql.conf"
+  
+  # Get system memory in MB
+  mem_kb=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+  mem_mb=$((mem_kb / 1024))
+  
+  # Calculate optimal shared_buffers (25% of RAM)
+  shared_buffers=$((mem_mb / 4))
+  
+  # Calculate work_mem (1/16 of RAM)
+  work_mem=$((mem_mb / 16))
+  
+  log "Optimizing PostgreSQL configuration based on system with ${mem_mb}MB RAM..."
+  
+  # Only update if values are significantly different
+  current_shared_buffers=$(sudo grep "^shared_buffers" "$PG_CONF" | awk '{print $3}' | sed 's/MB//')
+  
+  if [[ -z "$current_shared_buffers" ]] || (( current_shared_buffers < shared_buffers / 2 )); then
+    log "Optimizing shared_buffers to ${shared_buffers}MB"
+    sudo sed -i "s/^shared_buffers.*/shared_buffers = ${shared_buffers}MB/" "$PG_CONF"
+    optimization_needed=true
+  fi
+  
+  current_work_mem=$(sudo grep "^work_mem" "$PG_CONF" | awk '{print $3}' | sed 's/MB//')
+  
+  if [[ -z "$current_work_mem" ]] || (( current_work_mem < work_mem / 2 )); then
+    log "Optimizing work_mem to ${work_mem}MB"
+    sudo sed -i "s/^work_mem.*/work_mem = ${work_mem}MB/" "$PG_CONF"
+    optimization_needed=true
+  fi
+  
+  # Restart if optimizations were made
+  if [[ "$optimization_needed" = true ]]; then
+    log "Configuration optimized, restarting PostgreSQL..."
+    sudo systemctl restart postgresql
+  else
+    log "PostgreSQL configuration is already optimal."
+  fi
+}
+
+# Run the script
+check_postgres_errors
+3. Update Docker Templates
+Update the Docker templates to use Trixie as default:
+
+dockerfile
+# ~/dotfiles/docker/templates/Dockerfile.postgres
+FROM postgres:16
+
+# Use the official image with customizations
+RUN echo 'deb https://apt.postgresql.org/pub/repos/apt/ trixie-pgdg main' > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+       postgresql-16-postgis-3 \
+       postgresql-16-postgis-3-scripts \
+       postgresql-16-repack \
+       postgresql-16-cron \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Add fallback mechanism for extensions
+COPY ./scripts/install_extensions.sh /docker-entrypoint-initdb.d/
+Create the extension installer script:
+
+bash
+#!/bin/bash
+# ~/dotfiles/docker/templates/scripts/install_extensions.sh
+
+set -e
+
+# Try to install from Trixie repos first, fallback to Bookworm if needed
+install_extension() {
+  extension=$1
+  echo "Attempting to install PostgreSQL extension: $extension"
+  
+  if apt-get install -y --no-install-recommends "postgresql-$PG_MAJOR-$extension"; then
+    echo "Successfully installed $extension from primary repository"
+  else
+    echo "Falling back to alternate repository for $extension"
+    echo "deb https://apt.postgresql.org/pub/repos/apt/ bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg-fallback.list
+    apt-get update
+    apt-get install -y --no-install-recommends "postgresql-$PG_MAJOR-$extension" || echo "Failed to install $extension"
+  fi
+}
+
+# Install common extensions with fallback mechanism
+for ext in "pg_stat_statements" "pgaudit" "pg_cron" "pg_partman"; do
+  install_extension $ext
+done
+4. Integration with Watchdog System
+Add the PostgreSQL healing script to your watchdog service:
+
+bash
+# ~/services/watchdog/monitor.sh (modified section)
+
+check_postgres() {
+  if systemctl is-active postgresql &>/dev/null; then
+    log "PostgreSQL is running."
+  else
+    log "WARNING: PostgreSQL is not running. Running healing script..."
+    "$SERVICES_DIR/watchdog/postgres_healing.sh"
+  fi
+}
+5. Setup Systemd Service for PostgreSQL Maintenance
+bash
+# ~/.config/systemd/user/postgres-maintenance.service
+[Unit]
+Description=PostgreSQL Maintenance Service
+After=postgresql.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/username/services/watchdog/postgres_healing.sh
+bash
+# ~/.config/systemd/user/postgres-maintenance.timer
+[Unit]
+Description=Run PostgreSQL Maintenance daily
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+These updates will ensure that:
+
+Debian Trixie is used as the primary source for PostgreSQL packages
+Bookworm is available as a fallback when needed
+Common PostgreSQL errors are automatically detected and fixed
+Configuration is optimized based on your system resources
+Regular maintenance is performed automatically
+Would you like me to provide additional details for any specific part of this implementation?
+
+
+
+
+Retry
+complete the implementaion process docs and all
+
+Edit
+
+Mapped out comprehensive PostgreSQL implementation with detailed documentation.
+
+2s
+
+
+
+Comprehensive PostgreSQL Implementation with Trixie/Bookworm Architecture
+This document provides a complete implementation guide for setting up PostgreSQL with Debian Trixie as the primary distribution and Bookworm as the fallback, including automatic error correction, maintenance procedures, and integration with existing systems.
+
+Table of Contents
+Implementation Scripts
+Installation Process
+Configuration Management
+Self-Healing System
+Docker Integration
+Technical Documentation
+User Manual
+Terraform Integration
+GitHub Automations
+Maintenance Procedures
+Package Publishing
+Issue Management
+Implementation Scripts
+1. PostgreSQL Setup Script
+bash
+#!/usr/bin/env bash
+# ~/dotfiles/postgres/setup.sh
+set -euo pipefail
+
+# Configuration variables
+PG_VERSION="16"
+PG_DATA_DIR="/var/lib/postgresql/${PG_VERSION}/main"
+PG_CONFIG_DIR="$HOME/dotfiles/postgres/config"
+PG_SCRIPTS_DIR="$HOME/dotfiles/postgres/scripts"
+PG_SERVICE_DIR="$HOME/services/postgres"
+PG_LOG_DIR="/var/log/postgresql"
+
+# Create directories
+mkdir -p "$PG_CONFIG_DIR" "$PG_SCRIPTS_DIR" "$PG_SERVICE_DIR" "$HOME/.logs/postgres"
+
+echo "==> Installing PostgreSQL ${PG_VERSION}..."
+if ! dpkg -s "postgresql-${PG_VERSION}" &>/dev/null; then
+  # Add PostgreSQL repository with Trixie as primary, Bookworm as fallback
+  echo "deb https://apt.postgresql.org/pub/repos/apt/ trixie-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg-trixie.list
+  echo "deb https://apt.postgresql.org/pub/repos/apt/ bookworm-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg-bookworm.list
+  
+  # Set preferences to prioritize Trixie
+  cat > /tmp/pgdg.pref << EOF
+Package: *
+Pin: release n=trixie-pgdg
+Pin-Priority: 700
+
+Package: *
+Pin: release n=bookworm-pgdg
+Pin-Priority: 600
+EOF
+  sudo mv /tmp/pgdg.pref /etc/apt/preferences.d/pgdg.pref
+  
+  # Add repository key
+  wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+  sudo apt-get update
+
+  # Install PostgreSQL with automatic fallback
+  sudo apt-get install -y "postgresql-${PG_VERSION}" "postgresql-contrib-${PG_VERSION}" "postgresql-client-${PG_VERSION}" libpq-dev
+fi
+
+echo "==> Configuring PostgreSQL..."
+# Create custom PostgreSQL configuration with optimized defaults
+cat > "$PG_CONFIG_DIR/postgresql.custom.conf" << EOF
+# Optimized PostgreSQL configuration
+listen_addresses = 'localhost'
+port = 5432
+
+# Connection settings
+max_connections = 100
+superuser_reserved_connections = 3
+
+# Memory settings
+shared_buffers = $(grep MemTotal /proc/meminfo | awk '{printf "%.0f", $2/1024/4}')MB
+effective_cache_size = $(grep MemTotal /proc/meminfo | awk '{printf "%.0f", $2/1024/2}')MB
+work_mem = $(grep MemTotal /proc/meminfo | awk '{printf "%.0f", $2/1024/16}')MB
+maintenance_work_mem = $(grep MemTotal /proc/meminfo | awk '{printf "%.0f", $2/1024/16}')MB
+
+# Checkpoint settings
+checkpoint_timeout = 15min
+checkpoint_completion_target = 0.9
+max_wal_size = 1GB
+min_wal_size = 80MB
+
+# Query tuning
+random_page_cost = 1.1
+effective_io_concurrency = 200
+parallel_leader_participation = on
+parallel_tuple_cost = 0.1
+parallel_setup_cost = 1000.0
+max_parallel_workers_per_gather = 4
+max_parallel_workers = 8
+max_parallel_maintenance_workers = 4
+
+# Logging settings
+log_timezone = 'UTC'
+log_statement = 'none'  # Change to 'ddl', 'mod', or 'all' for more detailed logging
+log_min_duration_statement = 1000  # Log statements taking over 1s
+log_checkpoints = on
+log_connections = off
+log_disconnections = off
+log_line_prefix = '%m [%p] %q%u@%d '
+log_lock_waits = on
+log_temp_files = 0
+log_autovacuum_min_duration = 0
+
+# Locale settings
+datestyle = 'iso, mdy'
+timezone = 'UTC'
+lc_messages = 'en_US.UTF-8'
+lc_monetary = 'en_US.UTF-8'
+lc_numeric = 'en_US.UTF-8'
+lc_time = 'en_US.UTF-8'
+default_text_search_config = 'pg_catalog.english'
+
+# Auto vacuum settings
+autovacuum = on
+autovacuum_max_workers = 3
+autovacuum_naptime = 1min
+autovacuum_vacuum_threshold = 50
+autovacuum_analyze_threshold = 50
+autovacuum_vacuum_scale_factor = 0.01
+autovacuum_analyze_scale_factor = 0.01
+autovacuum_vacuum_cost_delay = 10ms
+autovacuum_vacuum_cost_limit = 1000
+
+# Extensions
+shared_preload_libraries = 'pg_stat_statements'
+pg_stat_statements.track = all
+EOF
+
+# Apply the custom configuration
+sudo cp "$PG_CONFIG_DIR/postgresql.custom.conf" "${PG_DATA_DIR}/postgresql.custom.conf"
+if ! grep -q "include 'postgresql.custom.conf'" "${PG_DATA_DIR}/postgresql.conf"; then
+  echo "include 'postgresql.custom.conf'" | sudo tee -a "${PG_DATA_DIR}/postgresql.conf" > /dev/null
+fi
+
+# Update pg_hba.conf to allow local access
+PG_HBA="${PG_DATA_DIR}/pg_hba.conf"
+sudo cp "$PG_HBA" "${PG_HBA}.bak"
+
+cat > /tmp/pg_hba.conf << EOF
+# PostgreSQL Client Authentication Configuration
+# TYPE  DATABASE        USER            ADDRESS                 METHOD
+local   all             postgres                                peer
+local   all             all                                     peer
+host    all             all             127.0.0.1/32            scram-sha-256
+host    all             all             ::1/128                 scram-sha-256
+host    all             all             localhost               scram-sha-256
+EOF
+
+sudo cp /tmp/pg_hba.conf "$PG_HBA"
+sudo chown postgres:postgres "$PG_HBA"
+sudo chmod 640 "$PG_HBA"
+
+echo "==> Creating PostgreSQL users and databases..."
+# Setup superuser for current user
+sudo systemctl restart postgresql
+sudo -u postgres psql -c "CREATE ROLE $USER WITH LOGIN SUPERUSER CREATEDB CREATEROLE PASSWORD 'postgres';" || true
+sudo -u postgres psql -c "CREATE DATABASE $USER OWNER $USER;" || true
+
+# Create development database
+sudo -u postgres psql -c "CREATE DATABASE development OWNER $USER;" || true
+
+echo "==> Creating PostgreSQL management scripts..."
+# Backup script
+cat > "$PG_SCRIPTS_DIR/pg_backup.sh" << 'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+BACKUP_DIR="$HOME/backups/postgres"
+LOG_DIR="$HOME/.logs/postgres"
+mkdir -p "$BACKUP_DIR" "$LOG_DIR"
+LOG_FILE="$LOG_DIR/backup_$(date +%Y%m%d).log"
+
+log() {
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"
+}
+
+# Get date for backup file
+DATE=$(date +%Y%m%d_%H%M%S)
+log "Starting PostgreSQL backup - $DATE"
+
+# Get list of databases
+databases=$(psql -l -t | grep -v template | grep -v postgres | awk '{print $1}' | grep -v '^|' | grep -v '^$')
+
+# Backup each database
+for db in $databases; do
+  log "Backing up database: $db"
+  backup_file="$BACKUP_DIR/${db}_${DATE}.dump"
+  
+  # Create directory structure by year/month
+  year_month=$(date +%Y/%m)
+  mkdir -p "$BACKUP_DIR/$year_month"
+  
+  # Create backup with compression
+  pg_dump -Fc -Z9 "$db" > "$BACKUP_DIR/$year_month/${db}_${DATE}.dump"
+  
+  if [ $? -eq 0 ]; then
+    log "Backup successful: $BACKUP_DIR/$year_month/${db}_${DATE}.dump ($(du -h "$BACKUP_DIR/$year_month/${db}_${DATE}.dump" | cut -f1))"
+  else
+    log "ERROR: Backup failed for database $db"
+  fi
+  
+  # Create a symlink to the latest backup
+  ln -sf "$BACKUP_DIR/$year_month/${db}_${DATE}.dump" "$BACKUP_DIR/${db}_latest.dump"
+done
+
+# Clean up old backups (keep last 30 days, monthly backups for a year)
+log "Cleaning up old backups..."
+
+# Keep daily backups for 30 days
+find "$BACKUP_DIR" -type f -name "*.dump" -mtime +30 -not -name "*_01_*.dump" -delete
+
+# Keep monthly backups for 1 year
+find "$BACKUP_DIR" -type f -name "*_01_*.dump" -mtime +365 -delete
+
+log "PostgreSQL backups completed. See $BACKUP_DIR for all backups."
+EOF
+chmod +x "$PG_SCRIPTS_DIR/pg_backup.sh"
+
+# Restore script
+cat > "$PG_SCRIPTS_DIR/pg_restore.sh" << 'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+LOG_DIR="$HOME/.logs/postgres"
+mkdir -p "$LOG_DIR"
+LOG_FILE="$LOG_DIR/restore_$(date +%Y%m%d).log"
+
+log() {
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"
+}
+
+if [ $# -lt 1 ]; then
+  echo "Usage: $0 <backup_file> [database_name]"
+  echo "  If database_name is not provided, it will be extracted from the backup filename."
+  exit 1
+fi
+
+BACKUP_FILE="$1"
+DB_NAME="${2:-}"
+
+if [ ! -f "$BACKUP_FILE" ]; then
+  log "Error: Backup file not found: $BACKUP_FILE"
+  exit 1
+fi
+
+# Extract database name from backup file if not provided
+if [ -z "$DB_NAME" ]; then
+  filename=$(basename "$BACKUP_FILE")
+  DB_NAME=$(echo "$filename" | sed -E 's/^([^_]+)_.*/\1/')
+  log "Extracted database name from filename: $DB_NAME"
+fi
+
+log "Restoring $BACKUP_FILE to database $DB_NAME..."
+
+# Check if database exists
+if psql -lqt | cut -d \| -f 1 | grep -qw "$DB_NAME"; then
+  read -p "Database $DB_NAME already exists. Drop and recreate? (y/n): " confirm
+  if [[ "$confirm" == [yY] ]]; then
+    log "Dropping existing database $DB_NAME"
+    psql -c "DROP DATABASE IF EXISTS \"$DB_NAME\";"
+  else
+    log "Restoration canceled by user"
+    exit 0
+  fi
+fi
+
+# Create the database
+log "Creating database $DB_NAME"
+psql -c "CREATE DATABASE \"$DB_NAME\";"
+
+# Restore the database
+log "Restoring data from $BACKUP_FILE"
+pg_restore -d "$DB_NAME" -v "$BACKUP_FILE" 2>&1 | tee -a "$LOG_FILE"
+
+if [ ${PIPESTATUS[0]} -eq 0 ]; then
+  log "Database restored successfully!"
+else
+  log "Warning: Some errors occurred during restoration. Check the log for details."
+  log "The database may still be usable."
+fi
+
+log "Analyzing database to update statistics"
+psql -c "ANALYZE;" "$DB_NAME"
+
+log "Restoration process complete for database: $DB_NAME"
+EOF
+chmod +x "$PG_SCRIPTS_DIR/pg_restore.sh"
+
+# Create a script to setup a new project database
+cat > "$PG_SCRIPTS_DIR/pg_create_project_db.sh" << 'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+LOG_DIR="$HOME/.logs/postgres"
+mkdir -p "$LOG_DIR"
+LOG_FILE="$LOG_DIR/create_db_$(date +%Y%m%d).log"
+
+log() {
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"
+}
+
+if [ $# -lt 1 ]; then
+  echo "Usage: $0 <project_name> [schema_file] [options]"
+  echo "Options:"
+  echo "  --owner <owner>    Set a specific owner (default: <project_name>_user)"
+  echo "  --password <pass>  Set a specific password (default: auto-generated)"
+  echo "  --extensions <ext> Comma-separated list of extensions to install"
+  exit 1
+fi
+
+PROJECT_NAME="$1"
+shift
+SCHEMA_FILE=""
+OWNER="${PROJECT_NAME}_user"
+PASSWORD=$(openssl rand -base64 12)
+EXTENSIONS=""
+
+# Parse additional arguments
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --owner)
+      OWNER="$2"
+      shift 2
+      ;;
+    --password)
+      PASSWORD="$2"
+      shift 2
+      ;;
+    --extensions)
+      EXTENSIONS="$2"
+      shift 2
+      ;;
+    *)
+      # If it's not an option and schema file not set yet, treat as schema file
+      if [[ -z "$SCHEMA_FILE" && -f "$1" ]]; then
+        SCHEMA_FILE="$1"
+      else
+        echo "Unknown option or file not found: $1"
+        exit 1
+      fi
+      shift
+      ;;
+  esac
+done
+
+log "Creating database for project: $PROJECT_NAME"
+log "Owner: $OWNER"
+
+DB_NAME="${PROJECT_NAME}_db"
+
+# Create role if it doesn't exist
+if ! psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='$OWNER'" | grep -q 1; then
+  log "Creating role: $OWNER"
+  psql -c "CREATE ROLE \"$OWNER\" WITH LOGIN PASSWORD '$PASSWORD';" || {
+    log "Error: Failed to create role $OWNER"
+    exit 1
+  }
+else
+  log "Role $OWNER already exists, using existing role"
+  psql -c "ALTER ROLE \"$OWNER\" WITH PASSWORD '$PASSWORD';"
+fi
+
+# Create database if it doesn't exist
+if ! psql -lqt | cut -d \| -f 1 | grep -qw "$DB_NAME"; then
+  log "Creating database: $DB_NAME"
+  psql -c "CREATE DATABASE \"$DB_NAME\" OWNER \"$OWNER\";" || {
+    log "Error: Failed to create database $DB_NAME"
+    exit 1
+  }
+else
+  log "Database $DB_NAME already exists, updating owner"
+  psql -c "ALTER DATABASE \"$DB_NAME\" OWNER TO \"$OWNER\";"
+fi
+
+# Grant privileges
+log "Setting up permissions"
+psql -c "GRANT ALL PRIVILEGES ON DATABASE \"$DB_NAME\" TO \"$OWNER\";"
+
+# Install extensions if specified
+if [ -n "$EXTENSIONS" ]; then
+  log "Installing extensions: $EXTENSIONS"
+  IFS=',' read -ra EXT_ARRAY <<< "$EXTENSIONS"
+  for ext in "${EXT_ARRAY[@]}"; do
+    log "Installing extension: $ext"
+    psql -d "$DB_NAME" -c "CREATE EXTENSION IF NOT EXISTS \"$ext\";" || {
+      log "Warning: Failed to install extension $ext"
+    }
+  done
+fi
+
+# Apply schema if provided
+if [ -n "$SCHEMA_FILE" ] && [ -f "$SCHEMA_FILE" ]; then
+  log "Applying schema from $SCHEMA_FILE..."
+  psql -d "$DB_NAME" -f "$SCHEMA_FILE" || {
+    log "Warning: Errors occurred while applying schema"
+  }
+fi
+
+# Create .env file template
+ENV_FILE="$PROJECT_NAME/.env.postgres"
+mkdir -p "$PROJECT_NAME"
+cat > "$ENV_FILE" << EOT
+# PostgreSQL Connection Information
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_DB=$DB_NAME
+POSTGRES_USER=$OWNER
+POSTGRES_PASSWORD=$PASSWORD
+DATABASE_URL=postgresql://$OWNER:$PASSWORD@localhost:5432/$DB_NAME
+EOT
+
+log "Database setup complete!"
+log "Connection string: postgresql://$OWNER:$PASSWORD@localhost:5432/$DB_NAME"
+log "Environment variables written to: $ENV_FILE"
+
+# Print connection info
+echo ""
+echo "====== PostgreSQL Database Created ======"
+echo "Database Name: $DB_NAME"
+echo "Username:      $OWNER"
+echo "Password:      $PASSWORD"
+echo "Connection URL: postgresql://$OWNER:$PASSWORD@localhost:5432/$DB_NAME"
+echo "Environment file created at: $ENV_FILE"
+echo "========================================="
+EOF
+chmod +x "$PG_SCRIPTS_DIR/pg_create_project_db.sh"
+
+# Create a systemd service for auto-backup
+mkdir -p "$HOME/.config/systemd/user"
+cat > "$HOME/.config/systemd/user/postgres-backup.service" << EOF
+[Unit]
+Description=PostgreSQL Backup Service
+After=postgresql.service
+
+[Service]
+Type=oneshot
+ExecStart=${PG_SCRIPTS_DIR}/pg_backup.sh
+EOF
+
+cat > "$HOME/.config/systemd/user/postgres-backup.timer" << EOF
+[Unit]
+Description=Run PostgreSQL Backup daily
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+# Create self-healing service
+cat > "$HOME/.config/systemd/user/postgres-healing.service" << EOF
+[Unit]
+Description=PostgreSQL Self-Healing Service
+After=postgresql.service
+
+[Service]
+Type=oneshot
+ExecStart=${PG_SCRIPTS_DIR}/pg_healing.sh
+EOF
+
+cat > "$HOME/.config/systemd/user/postgres-healing.timer" << EOF
+[Unit]
+Description=Run PostgreSQL Self-Healing hourly
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+# Enable and start the timer services
+systemctl --user daemon-reload
+systemctl --user enable postgres-backup.timer
+systemctl --user start postgres-backup.timer
+systemctl --user enable postgres-healing.timer
+systemctl --user start postgres-healing.timer
+
+echo "==> Setting up PostgreSQL aliases..."
+# Create PostgreSQL aliases
+cat > "$HOME/dotfiles/postgres/.pg_aliases" << 'EOF'
+# PostgreSQL shortcuts
+alias pgstart='sudo systemctl start postgresql'
+alias pgstop='sudo systemctl stop postgresql'
+alias pgrestart='sudo systemctl restart postgresql'
+alias pgstatus='sudo systemctl status postgresql'
+alias pgbackup='$HOME/dotfiles/postgres/scripts/pg_backup.sh'
+alias pgrestore='$HOME/dotfiles/postgres/scripts/pg_restore.sh'
+alias pgcreate='$HOME/dotfiles/postgres/scripts/pg_create_project_db.sh'
+alias pglog='sudo tail -f /var/log/postgresql/postgresql-*.log'
+
+# psql shortcuts
+alias psql='psql -U $USER'
+alias pgls='psql -c "\\l"'
+alias pgtables='psql -c "\\dt"'
+alias pgviews='psql -c "\\dv"'
+alias pgusers='psql -c "\\du"'
+alias pgindexes='psql -c "\\di"'
+alias pgschema='psql -c "\\dn"'
+alias pgactivity='psql -c "SELECT pid, usename, datname, client_addr, state, query_start, query FROM pg_stat_activity;"'
+alias pgkill='psql -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND state = '\''idle'\'';"'
+alias pgsize='psql -c "SELECT pg_database.datname, pg_size_pretty(pg_database_size(pg_database.datname)) AS size FROM pg_database ORDER BY pg_database_size(pg_database.datname) DESC;"'
+alias pgtablesize='psql -c "SELECT tablename, pg_size_pretty(pg_total_relation_size(schemaname||\'.\'||tablename)) AS total_size FROM pg_tables WHERE schemaname='\''public'\'' ORDER BY pg_total_relation_size(schemaname||\'.\'||tablename) DESC;"'
+EOF
+
+# Source the PostgreSQL aliases
+echo "source $HOME/dotfiles/postgres/.pg_aliases" >> "$HOME/dotfiles/bash/.bash_aliases"
+
+echo "==> PostgreSQL setup complete!"
+2. Self-Healing Script
+bash
+#!/usr/bin/env bash
+# ~/dotfiles/postgres/scripts/pg_healing.sh
+set -euo pipefail
+
+LOG_DIR="$HOME/.logs/postgres"
+mkdir -p "$LOG_DIR"
+LOG_FILE="$LOG_DIR/healing_$(date +%Y%m%d).log"
+
+log() {
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"
+}
+
+# Get PostgreSQL version
+PG_VERSION=$(pg_config --version | awk '{print $2}' | cut -d. -f1)
+PG_DATA_DIR="/var/lib/postgresql/${PG_VERSION}/main"
+PG_CONF="/etc/postgresql/${PG_VERSION}/main/postgresql.conf"
+PG_HBA="/etc/postgresql/${PG_VERSION}/main/pg_hba.conf"
+
+# Detect common PostgreSQL errors
+check_postgres_errors() {
+  log "Checking PostgreSQL status..."
+  
+  # Check if PostgreSQL is running
+  if ! systemctl is-active postgresql &>/dev/null; then
+    log "PostgreSQL service is not running. Attempting to start..."
+    sudo systemctl start postgresql || repair_postgres_service
+  fi
+  
+  # Check connectivity
+  if ! psql -U postgres -c "SELECT 1;" &>/dev/null; then
+    log "PostgreSQL connection failed. Diagnosing issue..."
+    diagnose_connection_issue
+  fi
+  
+  # Check disk space
+  if ! check_postgres_disk_space; then
+    log "Low disk space affecting PostgreSQL. Attempting cleanup..."
+    cleanup_postgres_disk_space
+  fi
+  
+  # Check for corrupt indexes
+  check_corrupt_indexes
+  
+  # Check for configuration optimizations
+  optimize_postgres_config
+  
+  # Check for pending maintenance tasks
+  check_maintenance_tasks
+  
+  # Check for autovacuum settings
+  check_autovacuum_settings
+  
+  log "PostgreSQL health check completed."
+}
+
+# Repair PostgreSQL service issues
+repair_postgres_service() {
+  log "Repairing PostgreSQL service..."
+  
+  # Check common issues that prevent startup
+  # 1. Check socket directory permissions
+  sudo mkdir -p /var/run/postgresql
+  sudo chmod 2775 /var/run/postgresql
+  sudo chown postgres:postgres /var/run/postgresql
+  
+  # 2. Check data directory
+  sudo chmod 700 "$PG_DATA_DIR"
+  sudo chown -R postgres:postgres "/var/lib/postgresql/${PG_VERSION}"
+  
+  # 3. Check for running postmaster process that might prevent startup
+  if [ -f "$PG_DATA_DIR/postmaster.pid" ]; then
+    log "postmaster.pid exists, checking if process is still running"
+    PID=$(head -1 "$PG_DATA_DIR/postmaster.pid")
+    if ! ps -p "$PID" > /dev/null; then
+      log "Stale PID file found, removing"
+      sudo rm -f "$PG_DATA_DIR/postmaster.pid"
+    fi
+  fi
+  
+  # 4. Try starting the service again
+  sudo systemctl restart postgresql
+  
+  # 5. If still failing, check logs
+  if ! systemctl is-active postgresql &>/dev/null; then
+    log "PostgreSQL still not starting. Latest log entries:"
+    sudo tail -n 20 /var/log/postgresql/postgresql-${PG_VERSION}-main.log >> "$LOG_FILE"
+    
+    # Check for disk full condition
+    if grep -q "No space left on device" /var/log/postgresql/postgresql-${PG_VERSION}-main.log; then
+      log "Disk full condition detected, emergency cleanup"
+      emergency_cleanup
+    fi
+  else
+    log "PostgreSQL service successfully started."
+  fi
+}
+
+# Emergency cleanup when disk is full
+emergency_cleanup() {
+  log "Performing emergency cleanup to free disk space..."
+  
+  # Clean up temporary files
+  sudo find /tmp -type f -mtime +1 -delete
+  
+  # Clean up journal logs
+  sudo journalctl --vacuum-time=1d
+  
+  # Clean up old PostgreSQL logs
+  sudo find /var/log/postgresql -type f -name "*.log.*" -delete
+  
+  # Try starting PostgreSQL again
+  sudo systemctl restart postgresql
+}
+
+# Diagnose connection issues
+diagnose_connection_issue() {
+  log "Diagnosing PostgreSQL connection issues..."
+  
+  # Check pg_hba.conf configuration
+  if ! grep -q "local.*all.*all.*peer" "$PG_HBA"; then
+    log "Missing local peer authentication. Adding configuration..."
+    echo "local   all             all                                     peer" | sudo tee -a "$PG_HBA"
+    sudo systemctl restart postgresql
+  fi
+  
+  # Check if postgres user exists
+  if ! id postgres &>/dev/null; then
+    log "PostgreSQL user does not exist. Creating user..."
+    sudo useradd -r -m -d /var/lib/postgresql -s /bin/bash postgres
+  fi
+  
+  # Check if user has a database
+  if ! sudo -u postgres psql -c "\\du" | grep -q "$USER"; then
+    log "User $USER does not exist in PostgreSQL. Creating..."
+    sudo -u postgres createuser --superuser "$USER"
+    sudo -u postgres createdb "$USER"
+  fi
+  
+  # Check for authentication method issues
+  if grep -q "local.*all.*all.*trust" "$PG_HBA"; then
+    log "Warning: 'trust' authentication method found, this is insecure"
+  fi
+  
+  log "Connection issue diagnosis complete."
+}
+
+# Check PostgreSQL disk space
+check_postgres_disk_space() {
+  local threshold=90
+  local usage=$(df -h /var/lib/postgresql | tail -n 1 | awk '{print $5}' | tr -d '%')
+  
+  if (( usage > threshold )); then
+    log "WARNING: PostgreSQL data directory disk space critical ($usage% used)"
+    return 1
+  fi
+  
+  return 0
+}
+
+# Clean up PostgreSQL disk space
+cleanup_postgres_disk_space() {
+  log "Cleaning up PostgreSQL disk space..."
+  
+  # 1. Vacuum full databases
+  log "Running VACUUM FULL on all databases"
+  for db in $(sudo -u postgres psql -t -c "SELECT datname FROM pg_database WHERE datistemplate = false;"); do
+    db=$(echo "$db" | xargs)  # Trim whitespace
+    log "Vacuuming database: $db"
+    sudo -u postgres psql -d "$db" -c "VACUUM FULL;"
+  done
+  
+  # 2. Remove old logs
+  log "Removing old PostgreSQL logs"
+  sudo find /var/log/postgresql -type f -name "*.log.*" -mtime +7 -delete
+  
+  # 3. Clean up pg_wal (transaction logs)
+  log "Switching WAL files"
+  sudo -u postgres psql -c "SELECT pg_switch_wal();"
+  
+  # 4. Check bloat and reindex if necessary
+  log "Checking for table bloat"
+  for db in $(sudo -u postgres psql -t -c "SELECT datname FROM pg_database WHERE datistemplate = false;"); do
+    db=$(echo "$db" | xargs)  # Trim whitespace
+    log "Checking database: $db for bloated tables"
+    
+    # Find bloated tables (more than 50% bloat)
+    bloated_tables=$(sudo -u postgres psql -d "$db" -t -c "
+      SELECT schemaname || '.' || tablename
+      FROM pg_tables
+      JOIN pg_class ON tablename = relname
+      JOIN pg_namespace ON schemaname = nspname
+      WHERE pg_total_relation_size(schemaname || '.' || tablename) > 10 * 1024 * 1024  -- Only check tables larger than 10MB
+      AND pg_total_relation_size(schemaname || '.' || tablename) * 0.5 < pg_total_relation_size(schemaname || '.' || tablename) - pg_relation_size(schemaname || '.' || tablename);
+    ")
+    
+    if [ -n "$bloated_tables" ]; then
+      for table in $bloated_tables; do
+        log "Rebuilding bloated table: $table"
+        sudo -u postgres psql -d "$db" -c "VACUUM FULL $table;"
+      done
+    else
+      log "No significantly bloated tables found in $db"
+    fi
+  done
+  
+  log "PostgreSQL disk cleanup complete."
+}
+
+# Check for corrupt indexes
+check_corrupt_indexes() {
+  log "Checking for corrupt indexes..."
+  
+  # Get list of databases
+  databases=$(sudo -u postgres psql -t -c "SELECT datname FROM pg_database WHERE datistemplate = false;")
+  
+  for db in $databases; do
+    db=$(echo "$db" | xargs)  # Trim whitespace
+    log "Checking indexes in database: $db"
+    
+    # Check for any issues with database consistency
+    if sudo -u postgres pg_amcheck -d "$db" --install-missing 2>&1 | grep -i -E 'error|corrupt'; then
+      log "Corruption detected in database: $db, reindexing"
+      sudo -u postgres psql -d "$db" -c "REINDEX DATABASE $db;"
+    else
+      log "No index corruption detected in database: $db"
+    fi
+  done
+  
+  log "Index check complete."
+}
+
+# Optimize PostgreSQL configuration
+optimize_postgres_config() {
+  # Get system memory in MB
+  mem_kb=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+  mem_mb=$((mem_kb / 1024))
+  
+  # Calculate optimal settings based on available memory
+  shared_buffers=$((mem_mb / 4))
+  effective_cache_size=$((mem_mb / 2))
+  work_mem=$((mem_mb / 16))
+  maintenance_work_mem=$((mem_mb / 16))
+  
+  log "Checking PostgreSQL configuration optimization (System RAM: ${mem_mb}MB)..."
+  
+  # Check current settings
+  current_shared_buffers=$(sudo grep "^shared_buffers" "$PG_CONF" | awk '{print $3}' | sed 's/MB//')
+  current_effective_cache_size=$(sudo grep "^effective_cache_size" "$PG_CONF" | awk '{print $3}' | sed 's/MB//')
+  current_work_mem=$(sudo grep "^work_mem" "$PG_CONF" | awk '{print $3}' | sed 's/MB//')
+  current_maintenance_work_mem=$(sudo grep "^maintenance_work_mem" "$PG_CONF" | awk '{print $3}' | sed 's/MB//')
+  
+  optimization_needed=false
+  
+  # Check if shared_buffers needs optimization
+  if [[ -z "$current_shared_buffers" ]] || (( current_shared_buffers < shared_buffers / 2 )); then
+    log "Optimizing shared_buffers to ${shared_buffers}MB (was: ${current_shared_buffers:-not set})"
+    sudo sed -i "/^shared_buffers/c\\shared_buffers = ${shared_buffers}MB" "$PG_CONF"
+    optimization_needed=true
+  fi
+  
+  # Check if effective_cache_size needs optimization
+  if [[ -z "$current_effective_cache_size" ]] || (( current_effective_cache_size < effective_cache_size / 2 )); then
+    log "Optimizing effective_cache_size to ${effective_cache_size}MB (was: ${current_effective_cache_size:-not set})"
+    if grep -q "^effective_cache_size" "$PG_CONF"; then
+      sudo sed -i "/^effective_cache_size/c\\effective_cache_size = ${effective_cache_size}MB" "$PG_CONF"
+    else
+      echo "effective_cache_size = ${effective_cache_size}MB" | sudo tee -a "$PG_CONF" > /dev/null
+    fi
+    optimization_needed=true
+  fi
+  
+  # Check if work_mem needs optimization
+  if [[ -z "$current_work_mem" ]] || (( current_work_mem < work_mem / 2 )); then
+    log "Optimizing work_mem to ${work_mem}MB (was: ${current_work_mem:-not set})"
+    if grep -q "^work_mem" "$PG_CONF"; then
+      sudo sed -i "/^work_mem/c\\work_mem = ${work_mem}MB" "$PG_CONF"
+    else
+      echo "work_mem = ${work_mem}MB" | sudo tee -a "$PG_CONF" > /dev/null
+    fi
+    optimization_needed=true
+  fi
+  
+  # Check if maintenance_work_mem needs optimization
+  if [[ -z "$current_maintenance_work_mem" ]] || (( current_maintenance_work_mem < maintenance_work_mem / 2 )); then
+    log "Optimizing maintenance_work_mem to ${maintenance_work_mem}MB (was: ${current_maintenance_work_mem:-not set})"
+    if grep -q "^maintenance_work_mem" "$PG_CONF"; then
+      sudo sed -i "/^maintenance_work_mem/c\\maintenance_work_mem = ${maintenance_work_mem}MB" "$PG_CONF"
+    else
+      echo "maintenance_work_mem = ${maintenance_work_mem}MB" | sudo tee -a "$PG_CONF" > /dev/null
+    fi
+    optimization_needed=true
+  fi
+  
+  # Restart if optimizations were made
+  if [[ "$optimization_needed" = true ]]; then
+    log "Configuration optimized, restarting PostgreSQL..."
+    sudo systemctl restart postgresql
+  else
+    log "PostgreSQL configuration is already optimal."
+  fi
+}
+
+# Check for pending maintenance tasks
+check_maintenance_tasks() {
+  log "Checking for pending maintenance tasks..."
+  
+  # Get list of databases
+  databases=$(sudo -u postgres psql -t -c "SELECT datname FROM pg_database WHERE datistemplate = false;")
+  
+  for db in $databases; do
+    db=$(echo "$db" | xargs)  # Trim whitespace
+    log "Checking maintenance tasks for database: $db"
+    
+    # Check for tables that haven't been analyzed recently
+    unanalyzed_tables=$(sudo -u postgres psql -d "$db" -t -c "
+      SELECT schemaname || '.' || relname
+      FROM pg_stat_user_tables
+      WHERE n_live_tup > 10000 AND
+            (last_analyze IS NULL OR last_analyze < NOW() - INTERVAL '1 day')
+      LIMIT 5;
+    ")
+    
+    if [ -n "$unanalyzed_tables" ]; then
+      log "Running ANALYZE on tables that need statistics updates:"
+      for table in $unanalyzed_tables; do
+        log "  - Analyzing table: $table"
+        sudo -u postgres psql -d "$db" -c "ANALYZE VERBOSE $table;"
+      done
+    else
+      log "All tables in $db have recent statistics."
+    fi
+    
+    # Check for tables that need vacuuming
+    need_vacuum_tables=$(sudo -u postgres psql -d "$db" -t -c "
+      SELECT schemaname || '.' || relname,
+             n_dead_tup,
+             round(n_dead_tup * 100.0 / greatest(n_live_tup, 1), 1) as dead_ratio
+      FROM pg_stat_user_tables
+      WHERE n_dead_tup > 1000 OR (n_live_tup > 10000 AND n_dead_tup > n_live_tup * 0.05)
+      ORDER BY n_dead_tup DESC
+      LIMIT 5;
+    ")
+    
+    if [ -n "$need_vacuum_tables" ]; then
+      log "Running VACUUM on tables with high dead tuple counts:"
+      echo "$need_vacuum_tables" | while read -r line; do
+        table=$(echo "$line" | awk -F'|' '{print $1}' | xargs)
+        dead_tuples=$(echo "$line" | awk -F'|' '{print $2}' | xargs)
+        dead_ratio=$(echo "$line" | awk -F'|' '{print $3}' | xargs)
+        
+        log "  - Vacuuming table: $table (dead tuples: $dead_tuples, ratio: ${dead_ratio}%)"
+        sudo -u postgres psql -d "$db" -c "VACUUM VERBOSE $table;"
+      done
+    else
+      log "No tables in $db need immediate vacuuming."
+    fi
+  done
+  
+  log "Maintenance tasks check complete."
+}
+
+# Check autovacuum settings
+check_autovacuum_settings() {
+  log "Checking autovacuum settings..."
+  
+  # Check if autovacuum is enabled
+  autovacuum_enabled=$(sudo -u postgres psql -t -c "SHOW autovacuum;")
+  
+  if [ "${autovacuum_enabled}" != " on" ]; then
+    log "Autovacuum is disabled! Enabling..."
+    sudo -u postgres psql -c "ALTER SYSTEM SET autovacuum = on;"
+    sudo -u postgres psql -c "SELECT pg_reload_conf();"
+  else
+    log "Autovacuum is enabled."
+  fi
+  
+  # Check current settings
+  autovacuum_max_workers=$(sudo -u postgres psql -t -c "SHOW autovacuum_max_workers;" | xargs)
+  autovacuum_naptime=$(sudo -u postgres psql -t -c "SHOW autovacuum_naptime;" | xargs)
+  autovacuum_vacuum_scale_factor=$(sudo -u postgres psql -t -c "SHOW autovacuum_vacuum_scale_factor;" | xargs)
+  autovacuum_analyze_scale_factor=$(sudo -u postgres psql -t -c "SHOW autovacuum_analyze_scale_factor;" | xargs)
+  
+  # Get system specs for optimization
+  cpu_cores=$(grep -c ^processor /proc/cpuinfo)
+  mem_gb=$((mem_mb / 1024))
+  
+  # Log current settings
+  log "Current autovacuum settings:"
+  log "  - autovacuum_max_workers: $autovacuum_max_workers"
+  log "  - autovacuum_naptime: $autovacuum_naptime"
+  log "  - autovacuum_vacuum_scale_factor: $autovacuum_vacuum_scale_factor"
+  log "  - autovacuum_analyze_scale_factor: $autovacuum_analyze_scale_factor"
+  
+  # Recommendations based on system specs
+  recommended_workers=$(( cpu_cores / 4 + 1 ))
+  [[ $recommended_workers -lt 3 ]] && recommended_workers=3
+  [[ $recommended_workers -gt 8 ]] && recommended_workers=8
+  
+  # For busy systems with many tables, use more aggressive settings
+  if [[ $autovacuum_max_workers -lt $recommended_workers ]]; then
+    log "Recommending autovacuum_max_workers increase from $autovacuum_max_workers to $recommended_workers"
+    sudo -u postgres psql -c "ALTER SYSTEM SET autovacuum_max_workers = $recommended_workers;"
+    settings_changed=true
+  fi
+  
+  if [[ "${autovacuum_vacuum_scale_factor}" != "0.01" ]]; then
+    log "Recommending more aggressive autovacuum_vacuum_scale_factor: 0.01 (was: $autovacuum_vacuum_scale_factor)"
+    sudo -u postgres psql -c "ALTER SYSTEM SET autovacuum_vacuum_scale_factor = 0.01;"
+    settings_changed=true
+  fi
+  
+  if [[ "${autovacuum_analyze_scale_factor}" != "0.01" ]]; then
+    log "Recommending more aggressive autovacuum_analyze_scale_factor: 0.01 (was: $autovacuum_analyze_scale_factor)"
+    sudo -u postgres psql -c "ALTER SYSTEM SET autovacuum_analyze_scale_factor = 0.01;"
+    settings_changed=true
+  fi
+  
+  if [[ "$settings_changed" = true ]]; then
+    log "Autovacuum settings updated, reloading configuration..."
+    sudo -u postgres psql -c "SELECT pg_reload_conf();"
+  else
+    log "Autovacuum settings are optimal."
+  fi
+}
+
+# Run the script
+check_postgres_errors
+3. Docker Integration Script
+bash
+#!/usr/bin/env bash
+# ~/dotfiles/docker/postgres/setup.sh
+set -euo pipefail
+
+DOCKER_DIR="$HOME/dotfiles/docker/postgres"
+TEMPLATES_DIR="$DOCKER_DIR/templates"
+CONFIG_DIR="$DOCKER_DIR/config"
+SCRIPTS_DIR="$DOCKER_DIR/scripts"
+
+mkdir -p "$TEMPLATES_DIR" "$CONFIG_DIR" "$SCRIPTS_DIR"
+
+echo "==> Setting up PostgreSQL Docker configurations..."
+
+# Create Dockerfile for Trixie-based PostgreSQL
+cat > "$TEMPLATES_DIR/Dockerfile.postgres" << 'EOF'
+FROM postgres:16
+
+LABEL maintainer="Your Name <your.email@example.com>"
+LABEL description="PostgreSQL with Trixie/Bookworm repositories and optimized configuration"
+
+# Use the official image with customizations
+RUN echo 'deb https://apt.postgresql.org/pub/repos/apt/ trixie-pgdg main' > /etc/apt/sources.list.d/pgdg-trixie.list \
+    && echo 'deb https://apt.postgresql.org/pub/repos/apt/ bookworm-pgdg main' > /etc/apt/sources.list.d/pgdg-bookworm.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+       postgresql-16-postgis-3 \
+       postgresql-16-postgis-3-scripts \
+       postgresql-16-repack \
+       postgresql-16-cron \
+       postgresql-16-partman \
+       postgresql-16-pgaudit \
+       postgresql-16-pglogical \
+       postgresql-16-plpgsql-check \
+       postgresql-16-pgrouting \
+       postgresql-16-pgvector \
+       pgbadger \
+       pgtop \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Setup directory for custom configuration
+RUN mkdir -p /etc/postgresql/custom
+COPY config/postgresql.custom.conf /etc/postgresql/custom/
+COPY scripts/update-config.sh /docker-entrypoint-initdb.d/
+COPY scripts/install_extensions.sh /docker-entrypoint-initdb.d/
+
+# Create the extension directory
+RUN mkdir -p /var/lib/postgresql/extensions
+
+# Set environment variables for better defaults
+ENV POSTGRES_INITDB_ARGS="--data-checksums"
+ENV POSTGRES_HOST_AUTH_METHOD="scram-sha-256"
+
+# Expose PostgreSQL port
+EXPOSE 5432
+
+# Health check
+HEALTHCHECK --interval=10s --timeout=5s --retries=3 \
+  CMD pg_isready -U postgres || exit 1
+EOF
+
+# Create PostgreSQL custom configuration
+cat > "$CONFIG_DIR/postgresql.custom.conf" << 'EOF'
+# Custom PostgreSQL configuration for Docker containers
+
+# Connection settings
+listen_addresses = '*'
+max_connections = 100
+
+# Memory settings
+shared_buffers = 128MB
+effective_cache_size = 512MB
+work_mem = 16MB
+maintenance_work_mem = 64MB
+
+# WAL settings
+wal_buffers = 8MB
+max_wal_size = 1GB
+min_wal_size = 80MB
+checkpoint_completion_target = 0.9
+checkpoint_timeout = 15min
+
+# Query tuning
+random_page_cost = 1.1
+effective_io_concurrency = 200
+default_statistics_target = 100
+
+# Autovacuum settings
+autovacuum = on
+autovacuum_max_workers = 3
+autovacuum_naptime = 60s
+autovacuum_vacuum_threshold = 50
+autovacuum_analyze_threshold = 50
+autovacuum_vacuum_scale_factor = 0.01
+autovacuum_analyze_scale_factor = 0.01
+autovacuum_vacuum_cost_delay = 10ms
+autovacuum_vacuum_cost_limit = 1000
+
+# Logging settings
+log_min_duration_statement = 500
+log_checkpoints = on
+log_connections = on
+log_disconnections = on
+log_duration = off
+log_line_prefix = '%m [%p] %q%u@%d '
+log_lock_waits = on
+log_statement = 'ddl'
+log_temp_files = 0
+
+# Locale settings
+datestyle = 'iso, mdy'
+timezone = 'UTC'
+lc_messages = 'en_US.UTF-8'
+lc_monetary = 'en_US.UTF-8'
+lc_numeric = 'en_US.UTF-8'
+lc_time = 'en_US.UTF-8'
+default_text_search_config = 'pg_catalog.english'
+
+# Extensions
+shared_preload_libraries = 'pg_stat_statements,pgaudit,pg_cron'
+pg_stat_statements.track = all
+EOF
+
+# Create update config script
+cat > "$SCRIPTS_DIR/update-config.sh" << 'EOF'
+#!/bin/bash
+set -e
+
+# Update PostgreSQL configuration with custom settings
+echo "include_if_exists = '/etc/postgresql/custom/postgresql.custom.conf'" >> "$PGDATA/postgresql.conf"
+
+# Set memory parameters based on container limits
+if [ -f /sys/fs/cgroup/memory/memory.limit_in_bytes ]; then
+  mem_limit_bytes=$(cat /sys/fs/cgroup/memory/memory.limit_in_bytes)
+  
+  # Convert to MB with a 10% safety margin
+  mem_limit_mb=$(( mem_limit_bytes / 1024 / 1024 * 9 / 10 ))
+  
+  if [ "$mem_limit_mb" -gt 0 ]; then
+    echo "Container memory limit detected: ${mem_limit_mb}MB"
+    
+    # Calculate optimal settings
+    shared_buffers=$(( mem_limit_mb / 4 ))
+    effective_cache_size=$(( mem_limit_mb / 2 ))
+    work_mem=$(( mem_limit_mb / 16 ))
+    maintenance_work_mem=$(( mem_limit_mb / 8 ))
+    
+    # Ensure minimums
+    [ "$shared_buffers" -lt 128 ] && shared_buffers=128
+    [ "$effective_cache_size" -lt 256 ] && effective_cache_size=256
+    [ "$work_mem" -lt 4 ] && work_mem=4
+    [ "$maintenance_work_mem" -lt 16 ] && maintenance_work_mem=16
+    
+    # Update configuration
+    sed -i "s/^shared_buffers = .*/shared_buffers = ${shared_buffers}MB/" /etc/postgresql/custom/postgresql.custom.conf
+    sed -i "s/^effective_cache_size = .*/effective_cache_size = ${effective_cache_size}MB/" /etc/postgresql/custom/postgresql.custom.conf
+    sed -i "s/^work_mem = .*/work_mem = ${work_mem}MB/" /etc/postgresql/custom/postgresql.custom.conf
+    sed -i "s/^maintenance_work_mem = .*/maintenance_work_mem = ${maintenance_work_mem}MB/" /etc/postgresql/custom/postgresql.custom.conf
+    
+    echo "PostgreSQL memory settings optimized for container"
+  fi
+fi
+
+echo "PostgreSQL custom configuration applied"
+EOF
+chmod +x "$SCRIPTS_DIR/update-config.sh"
+
+# Create extension installer script
+cat > "$SCRIPTS_DIR/install_extensions.sh" << 'EOF'
+#!/bin/bash
+set -e
+
+# Function to install extensions
+install_extensions() {
+  DB_NAME="$1"
+  echo "Installing extensions for database: $DB_NAME"
+  
+  # Basic extensions
+  psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$DB_NAME" <<-EOSQL
+    CREATE EXTENSION IF NOT EXISTS "pg_stat_statements";
+    CREATE EXTENSION IF NOT EXISTS "adminpack";
+    CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+    CREATE EXTENSION IF NOT EXISTS "unaccent";
+    CREATE EXTENSION IF NOT EXISTS "pg_trgm";
+EOSQL
+  
+  # PostGIS extension (may fail if not available, which is fine)
+  psql -v ON_ERROR_STOP=0 --username "$POSTGRES_USER" --dbname "$DB_NAME" <<-EOSQL
+    CREATE EXTENSION IF NOT EXISTS "postgis";
+    CREATE EXTENSION IF NOT EXISTS "postgis_topology";
+EOSQL
+  
+  # More specialized extensions - try with error handling
+  for ext in "pgaudit" "pg_cron" "pg_partman" "pg_repack" "pglogical" "pgvector"; do
+    echo "Trying to install extension: $ext"
+    if psql -v ON_ERROR_STOP=0 --username "$POSTGRES_USER" --dbname "$DB_NAME" -c "CREATE EXTENSION IF NOT EXISTS \"$ext\";" 2>/dev/null; then
+      echo "Extension $ext installed successfully"
+    else
+      echo "Extension $ext not available or failed to install (this is normal if not installed)"
+    fi
+  done
+}
+
+# Install extensions for the main database
+install_extensions "$POSTGRES_DB"
+
+# Install extensions for template1 so they're available in new databases
+install_extensions "template1"
+
+echo "PostgreSQL extensions installation complete"
+EOF
+chmod +x "$SCRIPTS_DIR/install_extensions.sh"
+
+# Create Docker Compose template
+cat > "$DOCKER_DIR/docker-compose.yml" << 'EOF'
+version: '3.8'
+
+services:
+  postgres:
+    build:
+      context: .
+      dockerfile: templates/Dockerfile.postgres
+    container_name: postgres_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backups:/backups
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - postgres_network
+    
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    networks:
+      - postgres_network
+
+networks:
+  postgres_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  pgadmin_data:
+EOF
+
+# Create utility script to run PostgreSQL with Docker
+cat > "$DOCKER_DIR/run-postgres.sh" << 'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+DOCKER_DIR="$HOME/dotfiles/docker/postgres"
+
+cd "$DOCKER_DIR"
+
+# Check if Docker is running
+if ! docker info &>/dev/null; then
+  echo "Docker is not running. Starting Docker..."
+  sudo systemctl start docker
+fi
+
+# Build and start the containers
+echo "Starting PostgreSQL with Docker..."
+docker-compose up -d --build
+
+echo "PostgreSQL is now running:"
+echo "  - Database: localhost:5432"
+echo "  - Username: postgres"
+echo "  - Password: postgres"
+echo "  - PgAdmin: http://localhost:5050"
+echo "    - PgAdmin Username: admin@example.com"
+echo "    - PgAdmin Password: admin"
+EOF
+chmod +x "$DOCKER_DIR/run-postgres.sh"
+
+# Create backup script for Docker PostgreSQL
+cat > "$DOCKER_DIR/backup-postgres.sh" << 'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+DOCKER_DIR="$HOME/dotfiles/docker/postgres"
+BACKUP_DIR="$DOCKER_DIR/backups"
+CONTAINER_NAME="postgres_db"
+LOG_FILE="$BACKUP_DIR/backup_$(date +%Y%m%d).log"
+
+mkdir -p "$BACKUP_DIR"
+
+log() {
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"
+}
+
+# Get date for backup file
+DATE=$(date +%Y%m%d_%H%M%S)
+log "Starting PostgreSQL Docker backup - $DATE"
+
+# Check if container is running
+if ! docker ps | grep -q "$CONTAINER_NAME"; then
+  log "ERROR: PostgreSQL container '$CONTAINER_NAME' is not running."
+  exit 1
+fi
+
+# Create year/month directory structure
+YEAR_MONTH=$(date +%Y/%m)
+mkdir -p "$BACKUP_DIR/$YEAR_MONTH"
+
+# Get list of databases excluding template databases
+databases=$(docker exec "$CONTAINER_NAME" psql -U postgres -t -c "SELECT datname FROM pg_database WHERE datistemplate = false AND datname != 'postgres';")
+
+# Backup each database
+for db in $databases; do
+  db=$(echo "$db" | xargs)  # Trim whitespace
+  log "Backing up database: $db"
+  
+  backup_file="$BACKUP_DIR/$YEAR_MONTH/${db}_${DATE}.dump"
+  
+  # Create backup with compression
+  docker exec "$CONTAINER_NAME" pg_dump -U postgres -Fc -Z9 "$db" > "$backup_file"
+  
+  if [ $? -eq 0 ]; then
+    log "Backup successful: $backup_file ($(du -h "$backup_file" | cut -f1))"
+    
+    # Create a symlink to the latest backup
+    ln -sf "$backup_file" "$BACKUP_DIR/${db}_latest.dump"
+  else
+    log "ERROR: Backup failed for database $db"
+  fi
+done
+
+# Backup postgres database with globals (roles, tablespaces)
+log "Backing up globals and postgres database"
+docker exec "$CONTAINER_NAME" pg_dumpall -U postgres -g > "$BACKUP_DIR/$YEAR_MONTH/globals_${DATE}.sql"
+docker exec "$CONTAINER_NAME" pg_dump -U postgres -Fc -Z9 postgres > "$BACKUP_DIR/$YEAR_MONTH/postgres_${DATE}.dump"
+
+# Clean up old backups (keep last 30 days, monthly backups for a year)
+log "Cleaning up old backups..."
+
+# Keep daily backups for 30 days
+find "$BACKUP_DIR" -type f -name "*.dump" -mtime +30 -not -name "*_01_*.dump" -delete
+
+# Keep monthly backups for 1 year
+find "$BACKUP_DIR" -type f -name "*_01_*.dump" -mtime +365 -delete
+
+log "PostgreSQL Docker backups completed. See $BACKUP_DIR for all backups."
+EOF
+chmod +x "$DOCKER_DIR/backup-postgres.sh"
+
+# Create restore script for Docker PostgreSQL
+cat > "$DOCKER_DIR/restore-postgres.sh" << 'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+DOCKER_DIR="$HOME/dotfiles/docker/postgres"
+BACKUP_DIR="$DOCKER_DIR/backups"
+CONTAINER_NAME="postgres_db"
+LOG_FILE="$BACKUP_DIR/restore_$(date +%Y%m%d).log"
+
+log() {
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"
+}
+
+if [ $# -lt 1 ]; then
+  echo "Usage: $0 <backup_file> [database_name]"
+  echo "  If database_name is not provided, it will be extracted from the backup filename."
+  exit 1
+fi
+
+BACKUP_FILE="$1"
+DB_NAME="${2:-}"
+
+if [ ! -f "$BACKUP_FILE" ]; then
+  log "Error: Backup file not found: $BACKUP_FILE"
+  exit 1
+fi
+
+# Check if container is running
+if ! docker ps | grep -q "$CONTAINER_NAME"; then
+  log "ERROR: PostgreSQL container '$CONTAINER_NAME' is not running."
+  exit 1
+fi
+
+# Extract database name from backup file if not provided
+if [ -z "$DB_NAME" ]; then
+  filename=$(basename "$BACKUP_FILE")
+  DB_NAME=$(echo "$filename" | sed -E 's/^([^_]+)_.*/\1/')
+  log "Extracted database name from filename: $DB_NAME"
+fi
+
+log "Restoring $BACKUP_FILE to database $DB_NAME..."
+
+# Check if the backup is a globals file
+if [[ "$BACKUP_FILE" == *"globals"* ]]; then
+  log "Restoring global objects (roles, tablespaces)..."
+  cat "$BACKUP_FILE" | docker exec -i "$CONTAINER_NAME" psql -U postgres
+  log "Global objects restored."
+  exit 0
+fi
+
+# Check if database exists
+db_exists=$(docker exec "$CONTAINER_NAME" psql -U postgres -tAc "SELECT 1 FROM pg_database WHERE datname='$DB_NAME'")
+
+if [ "$db_exists" = "1" ]; then
+  read -p "Database $DB_NAME already exists. Drop and recreate? (y/n): " confirm
+  if [[ "$confirm" == [yY] ]]; then
+    log "Dropping existing database $DB_NAME"
+    docker exec "$CONTAINER_NAME" psql -U postgres -c "DROP DATABASE IF EXISTS \"$DB_NAME\";"
+  else
+    log "Restoration canceled by user"
+    exit 0
+  fi
+fi
+
+# Create the database
+log "Creating database $DB_NAME"
+docker exec "$CONTAINER_NAME" psql -U postgres -c "CREATE DATABASE \"$DB_NAME\";"
+
+# Restore the database
+log "Restoring data from $BACKUP_FILE"
+cat "$BACKUP_FILE" | docker exec -i "$CONTAINER_NAME" pg_restore -U postgres -d "$DB_NAME" -v
+
+if [ ${PIPESTATUS[1]} -eq 0 ]; then
+  log "Database restored successfully!"
+else
+  log "Warning: Some errors occurred during restoration. Check the log for details."
+  log "The database may still be usable."
+fi
+
+log "Analyzing database to update statistics"
+docker exec "$CONTAINER_NAME" psql -U postgres -c "ANALYZE;" "$DB_NAME"
+
+log "Restoration process complete for database: $DB_NAME"
+EOF
+chmod +x "$DOCKER_DIR/restore-postgres.sh"
+
+# Set up PostgreSQL Docker aliases
+cat > "$DOCKER_DIR/.docker_pg_aliases" << 'EOF'
+# PostgreSQL Docker shortcuts
+alias pgdstart='$HOME/dotfiles/docker/postgres/run-postgres.sh'
+alias pgdstop='cd $HOME/dotfiles/docker/postgres && docker-compose down'
+alias pgdrestart='cd $HOME/dotfiles/docker/postgres && docker-compose restart'
+alias pgdstatus='cd $HOME/dotfiles/docker/postgres && docker-compose ps'
+alias pgdlogs='cd $HOME/dotfiles/docker/postgres && docker-compose logs -f postgres'
+alias pgdbackup='$HOME/dotfiles/docker/postgres/backup-postgres.sh'
+alias pgdrestore='$HOME/dotfiles/docker/postgres/restore-postgres.sh'
+alias pgdexec='docker exec -it postgres_db psql -U postgres'
+alias pgdshell='docker exec -it postgres_db bash'
+EOF
+
+# Source the PostgreSQL Docker aliases
+echo "source $DOCKER_DIR/.docker_pg_aliases" >> "$HOME/dotfiles/bash/.bash_aliases"
+
+echo "==> Docker PostgreSQL setup complete!"
+Installation Process
+System Requirements
+Debian-based Linux distribution (preferably Debian Trixie/Bookworm)
+Minimum 2GB RAM (4GB+ recommended)
+At least 10GB free disk space
+sudo access
+Step-by-Step Installation
+Clone the dotfiles repository:
+bash
+git clone https://github.com/yourusername/dotfiles.git ~/dotfiles
+Run the PostgreSQL setup script:
+bash
+cd ~/dotfiles
+chmod +x postgres/setup.sh
+./postgres/setup.sh
+Set up Docker integration (optional):
+bash
+chmod +x docker/postgres/setup.sh
+./docker/postgres/setup.sh
+Configure the self-healing script:
+bash
+chmod +x postgres/scripts/pg_healing.sh
+systemctl --user enable postgres-healing.timer
+systemctl --user start postgres-healing.timer
+Test the installation:
+bash
+# Verify PostgreSQL is running
+systemctl status postgresql
+
+# Connect to PostgreSQL
+psql -U postgres
+
+# List databases
+\l
+
+# Exit psql
+\q
+Configuration Management
+Configuration Structure
+The PostgreSQL configuration follows a modular approach:
+
+~/dotfiles/postgres/
+├── config/
+│   ├── postgresql.custom.conf       # Main configuration file
+│   └── pg_hba.custom.conf           # Custom access control
+├── scripts/
+│   ├── pg_backup.sh                 # Backup script
+│   ├── pg_restore.sh                # Restore script
+│   ├── pg_create_project_db.sh      # Project database creator
+│   └── pg_healing.sh                # Self-healing script
+└── setup.sh                         # Main setup script
+Configuration Parameters
+Key configuration parameters are automatically tuned based on system resources:
+
+Memory Settings:
+shared_buffers: 25% of RAM
+effective_cache_size: 50% of RAM
+work_mem: 1/16 of RAM
+maintenance_work_mem: 1/16 of RAM
+Connection Settings:
+max_connections: 100 (default)
+listen_addresses: 'localhost'
+WAL Settings:
+max_wal_size: 1GB
+min_wal_size: 80MB
+checkpoint_completion_target: 0.9
+Autovacuum Settings:
+autovacuum: on
+autovacuum_max_workers: 3 (adjusted based on CPU cores)
+autovacuum_vacuum_scale_factor: 0.01 (aggressive)
+autovacuum_analyze_scale_factor: 0.01 (aggressive)
+Logging Settings:
+log_min_duration_statement: 1000ms (log slow queries)
+log_checkpoints: on
+log_line_prefix: '%m [%p] %q%u@%d '
+Managing Multiple Environments
+For different environments (development, testing, production), create environment-specific configuration files:
+
+bash
+# ~/dotfiles/postgres/config/postgresql.dev.conf
+# Development-specific overrides
+shared_preload_libraries = 'pg_stat_statements,auto_explain'
+auto_explain.log_min_duration = '3s'
+log_statement = 'all'  # Log all statements in development
+bash
+# ~/dotfiles/postgres/config/postgresql.prod.conf
+# Production-specific overrides
+shared_preload_libraries = 'pg_stat_statements,pgaudit'
+log_statement = 'none'  # Only log slow queries in production
+pgaudit.log = 'write'
+pgaudit.log_catalog = off
+Self-Healing System
+The self-healing system automatically detects and fixes common PostgreSQL issues:
+
+Monitoring Components
+Service Monitoring:
+Checks if PostgreSQL service is running
+Automatically restarts if stopped
+Connection Monitoring:
+Verifies database connectivity
+Repairs authentication configurations
+Disk Space Management:
+Monitors disk space usage
+Performs cleanup when space is low
+Index Management:
+Checks for corrupt indexes
+Automatically reindexes when issues are detected
+Configuration Optimization:
+Adjusts PostgreSQL settings based on system resources
+Optimizes for better performance
+Autovacuum Monitoring:
+Ensures autovacuum is running properly
+Adjusts settings for optimal maintenance
+Healing Actions
+The system can perform these automatic healing actions:
+
+Service Repair:
+Fix permission issues
+Remove stale PID files
+Restart PostgreSQL service
+Connection Repair:
+Update pg_hba.conf for proper authentication
+Create missing users and databases
+Disk Space Cleanup:
+Vacuum databases to reclaim space
+Remove old logs
+Clean up temporary files
+Performance Optimization:
+Analyze tables with outdated statistics
+Vacuum tables with excess dead tuples
+Rebuild bloated tables
+Configuration Management:
+Adjust memory parameters based on available RAM
+Optimize autovacuum settings
+Logging and Notification
+All healing actions are logged to ~/.logs/postgres/healing_YYYYMMDD.log with detailed information about:
+
+Detected issues
+Actions taken
+Recommendations for manual intervention if needed
+Docker Integration
+The Docker integration provides a containerized PostgreSQL environment using Trixie/Bookworm repositories.
+
+Features
+Custom Dockerfile:
+Uses official PostgreSQL 16 image
+Adds Trixie and Bookworm repositories
+Installs essential extensions
+Optimized Configuration:
+Auto-tunes based on container resources
+Includes best practices for containerized PostgreSQL
+Extension Management:
+Automatically installs common extensions
+Falls back to alternate repositories when needed
+Backup and Restore:
+Integrated backup scripts
+Organized backup storage by date
+Admin Interface:
+Includes pgAdmin for web-based management
+Pre-configured for easy access
+Using Docker PostgreSQL
+bash
+# Start PostgreSQL with Docker
+pgdstart
+
+# Connect to PostgreSQL in Docker
+pgdexec
+
+# Backup databases in Docker
+pgdbackup
+
+# Restore a database in Docker
+pgdrestore /path/to/backup.dump database_name
+
+# Stop PostgreSQL containers
+pgdstop
+Technical Documentation
+Architecture Overview
+The PostgreSQL implementation follows a layered architecture:
+
+Core Layer:
+PostgreSQL 16 database engine
+Trixie packages with Bookworm fallback
+Optimized configuration
+Management Layer:
+Backup and restore utilities
+Database creation scripts
+User management tools
+Self-Healing Layer:
+Monitoring services
+Automatic repair mechanisms
+Performance optimization
+Integration Layer:
+Docker containers
+Terraform modules
+Project templates
+Database Performance
+Optimizing PostgreSQL performance involves several key components:
+
+Memory Configuration:
+shared_buffers: Caches tables and indexes in memory
+work_mem: Memory for sort operations and hash tables
+maintenance_work_mem: Memory for maintenance operations
+Disk I/O:
+effective_io_concurrency: Optimizes concurrent I/O operations
+random_page_cost: Cost estimate for random disk access
+checkpoint_completion_target: Spreads checkpoints over time
+Query Optimization:
+default_statistics_target: Controls statistics gathering detail
+effective_cache_size: Estimates available OS cache
+parallel_workers: Controls parallelism for large operations
+Autovacuum Settings:
+autovacuum_max_workers: Number of concurrent vacuum processes
+autovacuum_vacuum_scale_factor: Threshold for VACUUM operations
+autovacuum_analyze_scale_factor: Threshold for ANALYZE operations
+Backup Strategy
+The backup system implements a comprehensive strategy:
+
+Backup Types:
+Full database dumps in custom format
+Global objects (roles, tablespaces)
+Incremental WAL archiving (optional)
+Retention Policy:
+Daily backups: 30 days
+Monthly backups: 1 year
+Yearly backups: indefinite (optional)
+Storage Structure:
+Organized by year/month
+Compressed to save space
+"Latest" symlinks for quick access
+Recovery Testing:
+Scheduled restore tests
+Verification of backup integrity
+Security Model
+PostgreSQL security is implemented with multiple layers:
+
+Authentication:
+Local connections: peer authentication
+Remote connections: scram-sha-256 (password)
+SSL certificates for production (optional)
+Authorization:
+Role-based access control
+Object privileges management
+Row-level security policies (for applications)
+Auditing:
+pgAudit extension for detailed audit logging
+Transaction logging for critical operations
+User activity monitoring
+Network Security:
+Host-based access control via pg_hba.conf
+Firewall configuration for remote access
+VPN requirements for production access
+User Manual
+Getting Started
+First-time Setup
+After installation, set a secure password for your PostgreSQL user:
+
+bash
+psql -c "ALTER USER $USER WITH PASSWORD 'your-secure-password';"
+Basic Commands
+bash
+# Start PostgreSQL service
+pgstart
+
+# Stop PostgreSQL service
+pgstop
+
+# Restart PostgreSQL service
+pgrestart
+
+# Check PostgreSQL status
+pgstatus
+
+# View PostgreSQL logs
+pglog
+Creating a Project Database
+bash
+# Basic project database
+pgcreate myproject
+
+# Project with schema file
+pgcreate myproject /path/to/schema.sql
+
+# Project with specific owner and extensions
+pgcreate myproject --owner admin_user --password secure123 --extensions "postgis,pgcrypto"
+Backup and Restore
+bash
+# Backup all databases
+pgbackup
+
+# Restore a specific database
+pgrestore /path/to/backup.dump database_name
+Managing Databases
+Connect to PostgreSQL
+bash
+# Connect to your user database
+psql
+
+# Connect to a specific database
+psql -d database_name
+
+# Connect as a different user
+psql -U username -d database_name
+Common psql Commands
+\l          # List all databases
+\c dbname   # Connect to a database
+\dt         # List tables in current database
+\d tablename # Describe a table
+\du         # List users and roles
+\q          # Quit psql
+Create and Drop Objects
+sql
+-- Create a database
+CREATE DATABASE mydb;
+
+-- Create a table
+CREATE TABLE users (
+  id SERIAL PRIMARY KEY,
+  username VARCHAR(50) UNIQUE NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create a user
+CREATE USER appuser WITH PASSWORD 'password';
+
+-- Grant privileges
+GRANT ALL PRIVILEGES ON DATABASE mydb TO appuser;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO appuser;
+
+-- Drop objects
+DROP TABLE users;
+DROP DATABASE mydb;
+DROP USER appuser;
+Maintenance Tasks
+Vacuum and Analyze
+sql
+-- Basic vacuum
+VACUUM;
+
+-- Full vacuum (requires exclusive lock)
+VACUUM FULL;
+
+-- Analyze to update statistics
+ANALYZE;
+
+-- Vacuum and analyze a specific table
+VACUUM ANALYZE users;
+Reset Statistics
+sql
+-- Reset query statistics
+SELECT pg_stat_statements_reset();
+
+-- Reset database statistics
+SELECT pg_stat_reset();
+Monitor Database Size
+sql
+-- Database sizes
+SELECT pg_database.datname, pg_size_pretty(pg_database_size(pg_database.datname)) 
+FROM pg_database ORDER BY pg_database_size(pg_database.datname) DESC;
+
+-- Table sizes
+SELECT tablename, pg_size_pretty(pg_total_relation_size('"' || tablename || '"')) 
+FROM pg_tables WHERE schemaname = 'public' 
+ORDER BY pg_total_relation_size('"' || tablename || '"') DESC;
+Troubleshooting
+Common Issues
+Cannot connect to database
+Check if PostgreSQL is running: systemctl status postgresql
+Verify pg_hba.conf settings
+Test with psql -U postgres -h localhost
+Slow queries
+Run EXPLAIN ANALYZE on the query
+Check if indexes are being used
+Run VACUUM ANALYZE on relevant tables
+High disk usage
+Identify large tables: SELECT * FROM pg_tables ORDER BY pg_total_relation_size('"' || tablename || '"') DESC LIMIT 10;
+Check for bloat: VACUUM FULL problematic tables
+Consider table partitioning for large tables
+Out of memory errors
+Check PostgreSQL memory settings
+Reduce work_mem or maintenance_work_mem
+Adjust shared_buffers based on available RAM
+Running Health Check
+Manually trigger the self-healing script to diagnose issues:
+
+bash
+~/dotfiles/postgres/scripts/pg_healing.sh
+Viewing Logs
+bash
+# View PostgreSQL logs
+sudo tail -f /var/log/postgresql/postgresql-*.log
+
+# View healing logs
+tail -f ~/.logs/postgres/healing_*.log
+
+# View backup logs
+tail -f ~/.logs/postgres/backup_*.log
+Terraform Integration
+The Terraform integration manages PostgreSQL resources as infrastructure as code.
+
+PostgreSQL Module
+hcl
+# ~/architecture/infrastructure/modules/postgres/main.tf
+variable "database_name" {
+  description = "The name of the database to create"
+  type        = string
+}
+
+variable "username" {
+  description = "The username for the database"
+  type        = string
+}
+
+variable "password" {
+  description = "The password for the database"
+  type        = string
+  sensitive   = true
+}
+
+variable "extensions" {
+  description = "List of extensions to install"
+  type        = list(string)
+  default     = []
+}
+
+resource "null_resource" "create_database" {
+  provisioner "local-exec" {
+    command = "PGPASSWORD=${var.password} createdb -U ${var.username} ${var.database_name} || true"
+  }
+}
+
+resource "null_resource" "create_extensions" {
+  depends_on = [null_resource.create_database]
+  
+  for_each = toset(var.extensions)
+  
+  provisioner "local-exec" {
+    command = "PGPASSWORD=${var.password} psql -U ${var.username} -d ${var.database_name} -c 'CREATE EXTENSION IF NOT EXISTS \"${each.key}\";'"
+  }
+}
+
+output "database_url" {
+  value     = "postgresql://${var.username}:${var.password}@localhost:5432/${var.database_name}"
+  sensitive = true
+}
+Example Usage
+hcl
+# ~/architecture/infrastructure/projects/app/main.tf
+module "database" {
+  source        = "../../modules/postgres"
+  database_name = "app_db"
+  username      = "app_user"
+  password      = var.db_password
+  extensions    = ["postgis", "pgcrypto", "pg_trgm"]
+}
+
+resource "null_resource" "database_schema" {
+  depends_on = [module.database]
+  
+  provisioner "local-exec" {
+    command = "PGPASSWORD=${var.db_password} psql -U app_user -d app_db -f schema.sql"
+  }
+}
+
+output "database_url" {
+  value     = module.database.database_url
+  sensitive = true
+}
+GitHub Automations
+Set up GitHub Actions workflows for automated testing and deployment of PostgreSQL changes.
+
+Database Migration Workflow
+yaml
+# .github/workflows/db-migrations.yml
+name: Database Migrations
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'db/migrations/**'
+      - 'db/schema.sql'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'db/migrations/**'
+      - 'db/schema.sql'
+
+jobs:
+  test-migrations:
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          
+      - name: Install dependencies
+        run: |
+          pip install psycopg2-binary migra sqlparse pgspecial
+      
+      - name: Test migrations
+        run: |
+          # Apply migrations to test database
+          for f in db/migrations/*.sql; do
+            echo "Applying migration: $f"
+            PGPASSWORD=postgres psql -h localhost -U postgres -d test_db -f "$f"
+          done
+          
+          # Verify schema matches expected
+          PGPASSWORD=postgres pg_dump -h localhost -U postgres -d test_db --schema-only > /tmp/actual_schema.sql
+          migra --unsafe /tmp/actual_schema.sql db/schema.sql > /tmp/schema_diff.sql
+          
+          if [ -s /tmp/schema_diff.sql ]; then
+            echo "Schema mismatch detected:"
+            cat /tmp/schema_diff.sql
+            exit 1
+          else
+            echo "Schema verification successful!"
+          fi
+          
+  deploy-migrations:
+    needs: test-migrations
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Deploy migrations
+        env:
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_PORT: ${{ secrets.DB_PORT }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        run: |
+          # Install PostgreSQL client
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          
+          # Apply migrations to production database
+          for f in db/migrations/*.sql; do
+            echo "Applying migration: $f"
+            PGPASSWORD=$DB_PASSWORD psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -f "$f"
+          done
+          
+          echo "Migrations applied successfully!"
+Database Backup Workflow
+yaml
+# .github/workflows/db-backup.yml
+name: Database Backup
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # Daily at midnight
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Create backup directory
+        run: mkdir -p backups
+      
+      - name: Backup PostgreSQL database
+        env:
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_PORT: ${{ secrets.DB_PORT }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        run: |
+          # Install PostgreSQL client
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          
+          # Create backup filename with timestamp
+          BACKUP_FILE="backups/${DB_NAME}_$(date +%Y%m%d_%H%M%S).dump"
+          
+          # Create backup
+          PGPASSWORD=$DB_PASSWORD pg_dump -h $DB_HOST -p $DB_PORT -U $DB_USER -Fc -Z9 $DB_NAME > $BACKUP_FILE
+          
+          echo "Backup created: $BACKUP_FILE ($(du -h $BACKUP_FILE | cut -f1))"
+      
+      - name: Upload backup to S3
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+      
+      - name: Sync to S3
+        run: |
+          aws s3 sync backups/ s3://${{ secrets.S3_BUCKET }}/database-backups/$(date +%Y/%m)/ --delete
+          
+          # Keep only the last 7 daily backups locally
+          find backups/ -type f -name "*.dump" -mtime +7 -delete
+Maintenance Procedures
+Daily Maintenance
+Automated database vacuuming (handled by autovacuum)
+Daily backups (scheduled at midnight)
+Performance statistics collection
+Weekly Maintenance
+Review PostgreSQL logs for errors or performance issues
+Check for tables with excess bloat
+Run full ANALYZE on all databases
+Monthly Maintenance
+Run manual VACUUM FULL on large tables during low-usage periods
+Review and optimize indexing strategy
+Check for unused indexes
+Quarterly Maintenance
+Review and update PostgreSQL configuration based on usage patterns
+Perform security audit of database users and permissions
+Test backup restoration process
+Annual Maintenance
+Major version upgrade assessment
+Complete performance review and optimization
+Comprehensive security audit
+Maintenance Scripts
+Schedule routine maintenance tasks with cron:
+
+bash
+# ~/dotfiles/postgres/scripts/scheduled_maintenance.sh
+#!/usr/bin/env bash
+set -euo pipefail
+
+LOG_DIR="$HOME/.logs/postgres"
+mkdir -p "$LOG_DIR"
+LOG_FILE="$LOG_DIR/maintenance_$(date +%Y%m%d).log"
+
+log() {
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"
+}
+
+# Determine maintenance type based on day of week/month
+DOW=$(date +%u)  # 1-7 (Monday-Sunday)
+DOM=$(date +%d)  # 01-31
+
+# Daily maintenance (always runs)
+log "Running daily maintenance tasks..."
+sudo -u postgres psql -c "SELECT pg_stat_statements_reset();"
+
+# Weekly maintenance (Sundays)
+if [ "$DOW" -eq 7 ]; then
+  log "Running weekly maintenance tasks..."
+  
+  # Get all databases
+  databases=$(sudo -u postgres psql -t -c "SELECT datname FROM pg_database WHERE datistemplate = false;")
+  
+  for db in $databases; do
+    db=$(echo "$db" | xargs)  # Trim whitespace
+    log "Running weekly maintenance on database: $db"
+    
+    # Analyze all tables
+    sudo -u postgres psql -d "$db" -c "ANALYZE VERBOSE;"
+    
+    # Check for unused indexes
+    unused_indexes=$(sudo -u postgres psql -d "$db" -t -c "
+      SELECT indexrelname, relname
+      FROM pg_stat_user_indexes
+      JOIN pg_index USING (indexrelid)
+      WHERE idx_scan = 0 AND indisunique IS FALSE;
+    ")
+    
+    if [ -n "$unused_indexes" ]; then
+      log "Unused indexes found in $db:"
+      echo "$unused_indexes" | while read -r line; do
+        log "  - $line"
+      done
+    fi
+  done
+fi
+
+# Monthly maintenance (1st day of month)
+if [ "$DOM" -eq "01" ]; then
+  log "Running monthly maintenance tasks..."
+  
+  # Get all databases
+  databases=$(sudo -u postgres psql -t -c "SELECT datname FROM pg_database WHERE datistemplate = false;")
+  
+  for db in $databases; do
+    db=$(echo "$db" | xargs)  # Trim whitespace
+    log "Running monthly maintenance on database: $db"
+    
+    # Find and vacuum bloated tables
+    bloated_tables=$(sudo -u postgres psql -d "$db" -t -c "
+      SELECT schemaname || '.' || tablename,
+             pg_size_pretty(pg_total_relation_size(schemaname || '.' || tablename)) as size
+      FROM pg_tables
+      JOIN pg_class ON tablename = relname
+      JOIN pg_namespace ON schemaname = nspname
+      WHERE pg_total_relation_size(schemaname || '.' || tablename) > 100 * 1024 * 1024  -- Tables larger than 100MB
+      AND pg_total_relation_size(schemaname || '.' || tablename) * 0.3 < pg_total_relation_size(schemaname || '.' || tablename) - pg_relation_size(schemaname || '.' || tablename)
+      ORDER BY pg_total_relation_size(schemaname || '.' || tablename) DESC;
+    ")
+    
+    if [ -n "$bloated_tables" ]; then
+      log "Bloated tables found in $db:"
+      echo "$bloated_tables" | while read -r line; do
+        table=$(echo "$line" | awk -F'|' '{print $1}' | xargs)
+        size=$(echo "$line" | awk -F'|' '{print $2}' | xargs)
+        
+        log "  - Vacuuming bloated table: $table ($size)"
+        sudo -u postgres psql -d "$db" -c "VACUUM FULL VERBOSE $table;"
+      done
+    else
+      log "No significantly bloated tables found in $db"
+    fi
+    
+    # Database-wide statistics
+    log "Database statistics for $db:"
+    sudo -u postgres psql -d "$db" -c "
+      SELECT 
+        pg_size_pretty(pg_database_size('$db')) as database_size,
+        (SELECT COUNT(*) FROM pg_stat_activity WHERE datname = '$db') as active_connections,
+        (SELECT COUNT(*) FROM pg_tables WHERE schemaname = 'public') as table_count,
+        (SELECT COUNT(*) FROM pg_indexes WHERE schemaname = 'public') as index_count;
+    " >> "$LOG_FILE"
+  done
+fi
+
+log "Maintenance tasks completed successfully!"
+Package Publishing
+Create a PostgreSQL helper package for distribution:
+
+Node.js Package
+javascript
+// ~/packages/node/pg-helper/index.js
+const { Pool } = require('pg');
+
+class PostgresHelper {
+  constructor(config) {
+    this.pool = new Pool(config);
+    
+    // Test connection
+    this.pool.query('SELECT 1')
+      .catch(err => console.error('Error connecting to PostgreSQL:', err));
+  }
+  
+  async query(text, params) {
+    const start = Date.now();
+    const res = await this.pool.query(text, params);
+    const duration = Date.now() - start;
+    
+    console.log('Executed query', { text, duration, rows: res.rowCount });
+    return res;
+  }
+  
+  async getClient() {
+    const client = await this.pool.connect();
+    const query = client.query;
+    const release = client.release;
+    
+    // Set a timeout of 5 seconds on idle clients
+    const timeout = setTimeout(() => {
+      console.error('A client has been checked out for too long!');
+      console.error(`The last executed query on this client was: ${client.lastQuery}`);
+    }, 5000);
+    
+    // Monkey patch the query method to keep track of the last query executed
+    client.query = (...args) => {
+      client.lastQuery = args;
+      return query.apply(client, args);
+    };
+    
+    client.release = () => {
+      clearTimeout(timeout);
+      client.query = query;
+      client.release = release;
+      return release.apply(client);
+    };
+    
+    return client;
+  }
+  
+  async transaction(callback) {
+    const client = await this.getClient();
+    
+    try {
+      await client.query('BEGIN');
+      const result = await callback(client);
+      await client.query('COMMIT');
+      return result;
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
+  
+  async close() {
+    await this.pool.end();
+  }
+}
+
+module.exports = PostgresHelper;
+Python Package
+python
+# ~/packages/python/pg_helper/pg_helper.py
+import time
+import logging
+from contextlib import contextmanager
+import psycopg2
+from psycopg2.pool import SimpleConnectionPool
+from psycopg2.extras import RealDictCursor
+
+class PostgresHelper:
+    def __init__(self, config):
+        self.config = config
+        self.pool = SimpleConnectionPool(1, 20, **config)
+        self.logger = logging.getLogger('pg_helper')
+        
+        # Test connection
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT 1")
+    
+    def get_connection(self):
+        return self.pool.getconn()
+    
+    def return_connection(self, conn):
+        self.pool.putconn(conn)
+    
+    @contextmanager
+    def connection(self):
+        conn = self.get_connection()
+        try:
+            yield conn
+        finally:
+            self.return_connection(conn)
+    
+    @contextmanager
+    def cursor(self, cursor_factory=RealDictCursor):
+        with self.connection() as conn:
+            with conn.cursor(cursor_factory=cursor_factory) as cursor:
+                yield cursor
+    
+    def query(self, query, params=None):
+        start_time = time.time()
+        with self.cursor() as cursor:
+            cursor.execute(query, params)
+            if cursor.description:
+                result = cursor.fetchall()
+            else:
+                result = None
+        
+        duration = (time.time() - start_time) * 1000
+        self.logger.debug(f"Query executed in {duration:.2f}ms: {query}")
+        return result
+    
+    @contextmanager
+    def transaction(self):
+        with self.connection() as conn:
+            try:
+                conn.autocommit = False
+                yield conn
+                conn.commit()
+            except Exception as e:
+                conn.rollback()
+                self.logger.error(f"Transaction rolled back: {str(e)}")
+                raise
+            finally:
+                conn.autocommit = True
+    
+    def close(self):
+        self.pool.closeall()
+Publishing to Package Repositories
+NPM Package
+bash
+# ~/dotfiles/scripts/publish_npm.sh
+#!/usr/bin/env bash
+set -euo pipefail
+
+PACKAGE_DIR="$HOME/packages/node/pg-helper"
+VERSION=$1
+
+cd "$PACKAGE_DIR"
+
+# Update package.json version
+npm version "$VERSION"
+
+# Build package
+npm run build
+
+# Publish to NPM
+npm publish
+
+echo "Published pg-helper v$VERSION to NPM"
+PyPI Package
+bash
+# ~/dotfiles/scripts/publish_pypi.sh
+#!/usr/bin/env bash
+set -euo pipefail
+
+PACKAGE_DIR="$HOME/packages/python/pg_helper"
+VERSION=$1
+
+cd "$PACKAGE_DIR"
+
+# Update version in setup.py
+sed -i "s/version='.*'/version='$VERSION'/" setup.py
+
+# Build package
+python setup.py sdist bdist_wheel
+
+# Upload to PyPI
+twine upload dist/*
+
+echo "Published pg_helper v$VERSION to PyPI"
+Issue Management
+Track and manage PostgreSQL-related issues with a dedicated script:
+
+bash
+#!/usr/bin/env bash
+# ~/dotfiles/postgres/scripts/pg_issues.sh
+set -euo pipefail
+
+ISSUES_DIR="$HOME/.issues/postgres"
+mkdir -p "$ISSUES_DIR"
+
+usage() {
+  echo "PostgreSQL Issue Tracker"
+  echo ""
+  echo "Usage: $0 <command> [options]"
+  echo ""
+  echo "Commands:"
+  echo "  list                List all open issues"
+  echo "  create <title>      Create a new issue"
+  echo "  show <i
+
+
+
+Retry
+Continue
+
+Edit
+
+Plotted continuation of PostgreSQL script and documentation.
+
+1s
+
+
+
+
+Issue Management (continued)
+bash
+#!/usr/bin/env bash
+# ~/dotfiles/postgres/scripts/pg_issues.sh (continued)
+
+usage() {
+  echo "PostgreSQL Issue Tracker"
+  echo ""
+  echo "Usage: $0 <command> [options]"
+  echo ""
+  echo "Commands:"
+  echo "  list                List all open issues"
+  echo "  create <title>      Create a new issue"
+  echo "  show <id>           Show issue details"
+  echo "  update <id>         Update an issue"
+  echo "  close <id>          Close an issue"
+  echo "  report              Generate diagnostic report"
+  echo "  export              Export issues to JSON"
+  echo "  help                Show this help message"
+  echo ""
+}
+
+list_issues() {
+  echo "PostgreSQL Issues:"
+  echo "================="
+  
+  if [ ! "$(ls -A "$ISSUES_DIR")" ]; then
+    echo "No issues found."
+    return
+  fi
+  
+  for issue in "$ISSUES_DIR"/*.issue; do
+    id=$(basename "$issue" .issue)
+    title=$(grep "^TITLE:" "$issue" | cut -d':' -f2- | xargs)
+    status=$(grep "^STATUS:" "$issue" | cut -d':' -f2- | xargs)
+    created=$(grep "^CREATED:" "$issue" | cut -d':' -f2- | xargs)
+    
+    if [ "$status" == "OPEN" ]; then
+      echo "[$id] $title (Created: $created)"
+    else
+      echo "[$id] $title (Status: $status, Created: $created)"
+    fi
+  done
+}
+
+create_issue() {
+  if [ $# -lt 1 ]; then
+    echo "Error: Issue title required"
+    usage
+    exit 1
+  fi
+  
+  title="$1"
+  id=$(date +%Y%m%d%H%M%S)
+  
+  # Gather system information
+  pg_version=$(sudo -u postgres psql -tAc "SELECT version();")
+  os_info=$(lsb_release -ds)
+  mem_info=$(free -h | grep Mem | awk '{print "Total: " $2 ", Used: " $3 ", Free: " $4}')
+  disk_info=$(df -h / | tail -n 1 | awk '{print "Total: " $2 ", Used: " $3 ", Used%: " $5 ", Free: " $4}')
+  
+  # Create issue file
+  cat > "$ISSUES_DIR/$id.issue" << EOF
+TITLE:$title
+STATUS:OPEN
+CREATED:$(date '+%Y-%m-%d %H:%M:%S')
+UPDATED:$(date '+%Y-%m-%d %H:%M:%S')
+
+SYSTEM INFO:
+PostgreSQL: $pg_version
+OS: $os_info
+Memory: $mem_info
+Disk: $disk_info
+
+DESCRIPTION:
+[Add a detailed description here]
+
+STEPS TO REPRODUCE:
+1. 
+2.
+3.
+
+SOLUTION:
+[Not resolved yet]
+
+NOTES:
+EOF
+  
+  echo "Issue created with ID: $id"
+  echo "Edit it with: $0 update $id"
+}
+
+show_issue() {
+  if [ $# -lt 1 ]; then
+    echo "Error: Issue ID required"
+    usage
+    exit 1
+  fi
+  
+  id="$1"
+  issue_file="$ISSUES_DIR/$id.issue"
+  
+  if [ ! -f "$issue_file" ]; then
+    echo "Error: Issue $id not found"
+    exit 1
+  fi
+  
+  cat "$issue_file"
+}
+
+update_issue() {
+  if [ $# -lt 1 ]; then
+    echo "Error: Issue ID required"
+    usage
+    exit 1
+  fi
+  
+  id="$1"
+  issue_file="$ISSUES_DIR/$id.issue"
+  
+  if [ ! -f "$issue_file" ]; then
+    echo "Error: Issue $id not found"
+    exit 1
+  fi
+  
+  # Update the UPDATED timestamp
+  sed -i "s/^UPDATED:.*/UPDATED:$(date '+%Y-%m-%d %H:%M:%S')/" "$issue_file"
+  
+  # Open the issue in the default editor
+  ${EDITOR:-nano} "$issue_file"
+  
+  echo "Issue $id updated"
+}
+
+close_issue() {
+  if [ $# -lt 1 ]; then
+    echo "Error: Issue ID required"
+    usage
+    exit 1
+  fi
+  
+  id="$1"
+  issue_file="$ISSUES_DIR/$id.issue"
+  
+  if [ ! -f "$issue_file" ]; then
+    echo "Error: Issue $id not found"
+    exit 1
+  fi
+  
+  # Update status and timestamp
+  sed -i "s/^STATUS:.*/STATUS:CLOSED/" "$issue_file"
+  sed -i "s/^UPDATED:.*/UPDATED:$(date '+%Y-%m-%d %H:%M:%S')/" "$issue_file"
+  
+  echo "Issue $id closed"
+}
+
+generate_report() {
+  report_file="$ISSUES_DIR/report_$(date +%Y%m%d).txt"
+  
+  echo "Generating PostgreSQL diagnostic report..."
+  echo "==========================================" > "$report_file"
+  echo "Report generated on: $(date '+%Y-%m-%d %H:%M:%S')" >> "$report_file"
+  echo "" >> "$report_file"
+  
+  echo "PostgreSQL Version:" >> "$report_file"
+  sudo -u postgres psql -tAc "SELECT version();" >> "$report_file"
+  echo "" >> "$report_file"
+  
+  echo "System Information:" >> "$report_file"
+  echo "OS: $(lsb_release -ds)" >> "$report_file"
+  echo "Kernel: $(uname -r)" >> "$report_file"
+  echo "CPU: $(grep 'model name' /proc/cpuinfo | head -1 | cut -d':' -f2 | xargs)" >> "$report_file"
+  echo "CPU Cores: $(grep -c ^processor /proc/cpuinfo)" >> "$report_file"
+  echo "Memory: $(free -h | grep Mem | awk '{print "Total: " $2 ", Used: " $3 ", Free: " $4}')" >> "$report_file"
+  echo "Disk: $(df -h / | tail -n 1 | awk '{print "Total: " $2 ", Used: " $3 ", Used%: " $5 ", Free: " $4}')" >> "$report_file"
+  echo "" >> "$report_file"
+  
+  echo "PostgreSQL Configuration:" >> "$report_file"
+  sudo -u postgres psql -c "SELECT name, setting, unit, context FROM pg_settings ORDER BY name;" >> "$report_file"
+  echo "" >> "$report_file"
+  
+  echo "Database Sizes:" >> "$report_file"
+  sudo -u postgres psql -c "SELECT pg_database.datname, pg_size_pretty(pg_database_size(pg_database.datname)) FROM pg_database ORDER BY pg_database_size(pg_database.datname) DESC;" >> "$report_file"
+  echo "" >> "$report_file"
+  
+  echo "Connection Information:" >> "$report_file"
+  sudo -u postgres psql -c "SELECT * FROM pg_stat_activity;" >> "$report_file"
+  echo "" >> "$report_file"
+  
+  echo "Lock Information:" >> "$report_file"
+  sudo -u postgres psql -c "SELECT * FROM pg_locks l JOIN pg_stat_activity a ON l.pid = a.pid;" >> "$report_file"
+  echo "" >> "$report_file"
+  
+  echo "Recent Logs:" >> "$report_file"
+  sudo tail -n 100 /var/log/postgresql/postgresql-*.log >> "$report_file"
+  echo "" >> "$report_file"
+  
+  echo "Open Issues:" >> "$report_file"
+  for issue in "$ISSUES_DIR"/*.issue; do
+    if grep -q "^STATUS:OPEN" "$issue"; then
+      cat "$issue" >> "$report_file"
+      echo "----------------------------------------" >> "$report_file"
+    fi
+  done
+  
+  echo "Report generated: $report_file"
+}
+
+export_issues() {
+  export_file="$ISSUES_DIR/issues_$(date +%Y%m%d).json"
+  
+  echo "[" > "$export_file"
+  
+  first=true
+  for issue in "$ISSUES_DIR"/*.issue; do
+    if [ -f "$issue" ]; then
+      id=$(basename "$issue" .issue)
+      title=$(grep "^TITLE:" "$issue" | cut -d':' -f2- | xargs)
+      status=$(grep "^STATUS:" "$issue" | cut -d':' -f2- | xargs)
+      created=$(grep "^CREATED:" "$issue" | cut -d':' -f2- | xargs)
+      updated=$(grep "^UPDATED:" "$issue" | cut -d':' -f2- | xargs)
+      
+      # Extract description between DESCRIPTION: and STEPS TO REPRODUCE:
+      description=$(sed -n '/^DESCRIPTION:/,/^STEPS TO REPRODUCE:/p' "$issue" | sed '1d;$d' | tr '\n' ' ' | xargs)
+      
+      # Extract solution between SOLUTION: and NOTES:
+      solution=$(sed -n '/^SOLUTION:/,/^NOTES:/p' "$issue" | sed '1d;$d' | tr '\n' ' ' | xargs)
+      
+      if [ "$first" = true ]; then
+        first=false
+      else
+        echo "," >> "$export_file"
+      fi
+      
+      cat >> "$export_file" << EOF
+  {
+    "id": "$id",
+    "title": "$title",
+    "status": "$status",
+    "created": "$created",
+    "updated": "$updated",
+    "description": "$description",
+    "solution": "$solution"
+  }
+EOF
+    fi
+  done
+  
+  echo "]" >> "$export_file"
+  echo "Issues exported to: $export_file"
+}
+
+# Main command handler
+case "${1:-help}" in
+  list)
+    list_issues
+    ;;
+  create)
+    shift
+    create_issue "$@"
+    ;;
+  show)
+    shift
+    show_issue "$@"
+    ;;
+  update)
+    shift
+    update_issue "$@"
+    ;;
+  close)
+    shift
+    close_issue "$@"
+    ;;
+  report)
+    generate_report
+    ;;
+  export)
+    export_issues
+    ;;
+  help|*)
+    usage
+    ;;
+esac
+Make the script executable:
+
+bash
+chmod +x ~/dotfiles/postgres/scripts/pg_issues.sh
+Add an alias for quick access:
+
+bash
+echo "alias pgissue='$HOME/dotfiles/postgres/scripts/pg_issues.sh'" >> "$HOME/dotfiles/postgres/.pg_aliases"
+Monitoring System
+Create a comprehensive monitoring system for PostgreSQL:
+
+bash
+#!/usr/bin/env bash
+# ~/dotfiles/postgres/scripts/pg_monitor.sh
+set -euo pipefail
+
+LOG_DIR="$HOME/.logs/postgres"
+mkdir -p "$LOG_DIR"
+LOG_FILE="$LOG_DIR/monitor_$(date +%Y%m%d).log"
+
+log() {
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"
+}
+
+# Colored output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Check PostgreSQL status
+check_status() {
+  log "Checking PostgreSQL status..."
+  
+  if systemctl is-active postgresql &>/dev/null; then
+    echo -e "${GREEN}PostgreSQL service is running${NC}"
+  else
+    echo -e "${RED}PostgreSQL service is NOT running${NC}"
+    return 1
+  fi
+  
+  # Check if we can connect
+  if sudo -u postgres psql -c "SELECT 1;" &>/dev/null; then
+    echo -e "${GREEN}PostgreSQL connection successful${NC}"
+  else
+    echo -e "${RED}PostgreSQL connection failed${NC}"
+    return 1
+  fi
+  
+  return 0
+}
+
+# Check database sizes
+check_sizes() {
+  log "Checking database sizes..."
+  
+  echo -e "${BLUE}Database Sizes:${NC}"
+  sudo -u postgres psql -c "SELECT pg_database.datname as database, 
+    pg_size_pretty(pg_database_size(pg_database.datname)) as size,
+    pg_database_size(pg_database.datname) as raw_size
+    FROM pg_database 
+    ORDER BY raw_size DESC;"
+  
+  # Check disk space
+  echo -e "\n${BLUE}Disk Space:${NC}"
+  df -h /var/lib/postgresql
+}
+
+# Check connections
+check_connections() {
+  log "Checking database connections..."
+  
+  # Get connection limits
+  max_conn=$(sudo -u postgres psql -tAc "SHOW max_connections;")
+  current_conn=$(sudo -u postgres psql -tAc "SELECT count(*) FROM pg_stat_activity;")
+  pct_used=$((current_conn * 100 / max_conn))
+  
+  echo -e "${BLUE}Connection Usage:${NC}"
+  echo "Current connections: $current_conn / $max_conn ($pct_used%)"
+  
+  if [ $pct_used -gt 80 ]; then
+    echo -e "${RED}Warning: High connection usage!${NC}"
+  elif [ $pct_used -gt 50 ]; then
+    echo -e "${YELLOW}Notice: Moderate connection usage${NC}"
+  else
+    echo -e "${GREEN}Connection usage is normal${NC}"
+  fi
+  
+  # Show connection details
+  echo -e "\n${BLUE}Connection Details:${NC}"
+  sudo -u postgres psql -c "SELECT datname as database, 
+    usename as user, 
+    application_name, 
+    client_addr, 
+    state, 
+    count(*) 
+    FROM pg_stat_activity 
+    GROUP BY 1, 2, 3, 4, 5 
+    ORDER BY count DESC;"
+}
+
+# Check for long-running queries
+check_long_queries() {
+  log "Checking for long-running queries..."
+  
+  echo -e "${BLUE}Long-Running Queries:${NC}"
+  sudo -u postgres psql -c "SELECT pid, 
+    now() - pg_stat_activity.query_start AS duration, 
+    usename, 
+    datname, 
+    wait_event, 
+    wait_event_type,
+    substr(query, 1, 80) as query_snippet
+    FROM pg_stat_activity 
+    WHERE state = 'active' 
+    AND (now() - pg_stat_activity.query_start) > interval '10 seconds'
+    ORDER BY duration DESC;"
+}
+
+# Check for locks
+check_locks() {
+  log "Checking for locks..."
+  
+  echo -e "${BLUE}Database Locks:${NC}"
+  sudo -u postgres psql -c "SELECT locktype, 
+    relation::regclass, 
+    mode, 
+    transactionid as tid, 
+    virtualtransaction as vtid, 
+    pid, 
+    granted 
+    FROM pg_locks l 
+    LEFT JOIN pg_stat_activity a ON l.pid = a.pid 
+    ORDER BY relation;"
+  
+  # Check for blocking locks
+  echo -e "\n${BLUE}Blocking Locks:${NC}"
+  sudo -u postgres psql -c "SELECT blocked_activity.pid AS blocked_pid,
+    blocked_activity.usename AS blocked_user,
+    blocking_activity.pid AS blocking_pid,
+    blocking_activity.usename AS blocking_user,
+    blocked_activity.query AS blocked_statement,
+    blocking_activity.query AS blocking_statement
+    FROM pg_catalog.pg_locks blocked_locks
+    JOIN pg_catalog.pg_stat_activity blocked_activity ON blocked_activity.pid = blocked_locks.pid
+    JOIN pg_catalog.pg_locks blocking_locks ON blocking_locks.locktype = blocked_locks.locktype
+      AND blocking_locks.database IS NOT DISTINCT FROM blocked_locks.database
+      AND blocking_locks.relation IS NOT DISTINCT FROM blocked_locks.relation
+      AND blocking_locks.page IS NOT DISTINCT FROM blocked_locks.page
+      AND blocking_locks.tuple IS NOT DISTINCT FROM blocked_locks.tuple
+      AND blocking_locks.virtualxid IS NOT DISTINCT FROM blocked_locks.virtualxid
+      AND blocking_locks.transactionid IS NOT DISTINCT FROM blocked_locks.transactionid
+      AND blocking_locks.classid IS NOT DISTINCT FROM blocked_locks.classid
+      AND blocking_locks.objid IS NOT DISTINCT FROM blocked_locks.objid
+      AND blocking_locks.objsubid IS NOT DISTINCT FROM blocked_locks.objsubid
+      AND blocking_locks.pid != blocked_locks.pid
+    JOIN pg_catalog.pg_stat_activity blocking_activity ON blocking_activity.pid = blocking_locks.pid
+    WHERE NOT blocked_locks.granted AND blocking_locks.granted;"
+}
+
+# Check for index usage
+check_indexes() {
+  log "Checking index usage..."
+  
+  echo -e "${BLUE}Index Usage Statistics:${NC}"
+  sudo -u postgres psql -c "SELECT schemaname, 
+    relname, 
+    indexrelname, 
+    idx_scan, 
+    idx_tup_read, 
+    idx_tup_fetch 
+    FROM pg_stat_user_indexes 
+    JOIN pg_stat_user_tables ON pg_stat_user_indexes.relid = pg_stat_user_tables.relid 
+    ORDER BY idx_scan DESC 
+    LIMIT 20;"
+  
+  # Check for unused indexes
+  echo -e "\n${BLUE}Unused Indexes:${NC}"
+  sudo -u postgres psql -c "SELECT schemaname, 
+    relname, 
+    indexrelname, 
+    idx_scan, 
+    pg_size_pretty(pg_relation_size(indexrelname::regclass)) as index_size
+    FROM pg_stat_user_indexes 
+    JOIN pg_stat_user_tables ON pg_stat_user_indexes.relid = pg_stat_user_tables.relid 
+    WHERE idx_scan = 0 
+    AND pg_stat_user_tables.n_live_tup > 100
+    AND pg_relation_size(indexrelname::regclass) > 1024 * 1024
+    ORDER BY pg_relation_size(indexrelname::regclass) DESC;"
+}
+
+# Check table statistics
+check_tables() {
+  log "Checking table statistics..."
+  
+  echo -e "${BLUE}Table Access Statistics:${NC}"
+  sudo -u postgres psql -c "SELECT schemaname, 
+    relname, 
+    seq_scan, 
+    seq_tup_read, 
+    idx_scan, 
+    idx_tup_fetch, 
+    n_tup_ins, 
+    n_tup_upd, 
+    n_tup_del, 
+    n_live_tup, 
+    n_dead_tup, 
+    last_vacuum, 
+    last_autovacuum, 
+    last_analyze, 
+    last_autoanalyze 
+    FROM pg_stat_user_tables 
+    ORDER BY n_live_tup DESC 
+    LIMIT 10;"
+  
+  # Check for tables needing vacuum
+  echo -e "\n${BLUE}Tables Needing VACUUM:${NC}"
+  sudo -u postgres psql -c "SELECT schemaname, 
+    relname, 
+    n_live_tup, 
+    n_dead_tup, 
+    n_dead_tup * 100.0 / GREATEST(n_live_tup, 1) as dead_ratio,
+    last_vacuum, 
+    last_autovacuum 
+    FROM pg_stat_user_tables 
+    WHERE n_dead_tup > 10000 OR n_dead_tup > n_live_tup * 0.1
+    ORDER BY n_dead_tup DESC 
+    LIMIT 10;"
+}
+
+# Check replication status
+check_replication() {
+  log "Checking replication status..."
+  
+  # Check if this instance is a primary
+  is_primary=$(sudo -u postgres psql -tAc "SELECT pg_is_in_recovery();")
+  
+  if [ "$is_primary" = "f" ]; then
+    echo -e "${BLUE}This is a PRIMARY server${NC}"
+    
+    echo -e "\n${BLUE}Replication Status:${NC}"
+    sudo -u postgres psql -c "SELECT client_addr, 
+      usename, 
+      application_name, 
+      state, 
+      sent_lsn, 
+      write_lsn, 
+      flush_lsn, 
+      replay_lsn, 
+      (sent_lsn - replay_lsn) AS lag_bytes,
+      sync_state 
+      FROM pg_stat_replication;"
+    
+    echo -e "\n${BLUE}Replication Slots:${NC}"
+    sudo -u postgres psql -c "SELECT slot_name, 
+      plugin, 
+      slot_type, 
+      datoid, 
+      active, 
+      xmin, 
+      pg_current_wal_lsn() - restart_lsn AS retained_bytes,
+      pg_size_pretty(pg_current_wal_lsn() - restart_lsn) AS retained_size
+      FROM pg_replication_slots;"
+  else
+    echo -e "${BLUE}This is a REPLICA server${NC}"
+    
+    echo -e "\n${BLUE}Replication Status:${NC}"
+    sudo -u postgres psql -c "SELECT pg_last_wal_receive_lsn(), 
+      pg_last_wal_replay_lsn(), 
+      pg_last_wal_receive_lsn() - pg_last_wal_replay_lsn() AS lag_bytes,
+      pg_size_pretty(pg_last_wal_receive_lsn() - pg_last_wal_replay_lsn()) AS lag_size,
+      pg_last_xact_replay_timestamp(), 
+      CASE WHEN pg_last_wal_receive_lsn() = pg_last_wal_replay_lsn() THEN 0
+      ELSE EXTRACT(EPOCH FROM now() - pg_last_xact_replay_timestamp())
+      END AS lag_seconds;"
+  fi
+}
+
+# Check cache hit ratio
+check_cache() {
+  log "Checking cache hit ratios..."
+  
+  echo -e "${BLUE}Buffer Cache Hit Ratio:${NC}"
+  sudo -u postgres psql -c "SELECT 
+    sum(heap_blks_read) as heap_read,
+    sum(heap_blks_hit) as heap_hit,
+    case when sum(heap_blks_read) = 0 then 'N/A'
+    else (sum(heap_blks_hit) * 100 / (sum(heap_blks_hit) + sum(heap_blks_read)))::text
+    end as hit_ratio
+    FROM pg_statio_user_tables;"
+  
+  echo -e "\n${BLUE}Index Cache Hit Ratio:${NC}"
+  sudo -u postgres psql -c "SELECT 
+    sum(idx_blks_read) as idx_read,
+    sum(idx_blks_hit) as idx_hit,
+    case when sum(idx_blks_read) = 0 then 'N/A'
+    else (sum(idx_blks_hit) * 100 / (sum(idx_blks_hit) + sum(idx_blks_read)))::text
+    end as hit_ratio
+    FROM pg_statio_user_indexes;"
+}
+
+# Check slow queries
+check_slow_queries() {
+  log "Checking slow query statistics..."
+  
+  # Check if pg_stat_statements is installed
+  stmt_exists=$(sudo -u postgres psql -tAc "SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'pg_stat_statements');")
+  
+  if [ "$stmt_exists" = "t" ]; then
+    echo -e "${BLUE}Top 10 Slowest Queries:${NC}"
+    sudo -u postgres psql -c "SELECT 
+      substring(query, 1, 80) as query_snippet,
+      calls, 
+      round(total_exec_time::numeric, 2) as total_time_ms,
+      round(mean_exec_time::numeric, 2) as avg_time_ms,
+      round((100 * total_exec_time / sum(total_exec_time) OVER ())::numeric, 2) as percent,
+      round(stddev_exec_time::numeric, 2) as stddev_ms,
+      round(min_exec_time::numeric, 2) as min_ms,
+      round(max_exec_time::numeric, 2) as max_ms
+      FROM pg_stat_statements 
+      ORDER BY total_exec_time DESC 
+      LIMIT 10;"
+    
+    echo -e "\n${BLUE}Top 10 IO-Intensive Queries:${NC}"
+    sudo -u postgres psql -c "SELECT 
+      substring(query, 1, 80) as query_snippet,
+      calls, 
+      shared_blks_hit,
+      shared_blks_read,
+      shared_blks_dirtied,
+      shared_blks_written,
+      local_blks_hit,
+      local_blks_read,
+      temp_blks_read,
+      temp_blks_written
+      FROM pg_stat_statements 
+      ORDER BY shared_blks_read + shared_blks_written + temp_blks_read + temp_blks_written DESC 
+      LIMIT 10;"
+  else
+    echo -e "${YELLOW}pg_stat_statements extension is not installed. Enable it to see query statistics.${NC}"
+    echo "Run: sudo -u postgres psql -c \"CREATE EXTENSION pg_stat_statements;\""
+    echo "And add to postgresql.conf: shared_preload_libraries = 'pg_stat_statements'"
+  fi
+}
+
+# Check for bloat
+check_bloat() {
+  log "Checking for table and index bloat..."
+  
+  echo -e "${BLUE}Table Bloat Estimation:${NC}"
+  sudo -u postgres psql -c "SELECT 
+    schemaname, 
+    tablename, 
+    cc.reltuples as row_estimate,
+    pg_size_pretty(pg_total_relation_size('"'\"' || schemaname || '"'.\"' || tablename || '"'\"')) as total_size,
+    pg_size_pretty(pg_relation_size('"'\"' || schemaname || '"'.\"' || tablename || '"'\"')) as table_size,
+    pg_size_pretty(pg_total_relation_size('"'\"' || schemaname || '"'.\"' || tablename || '"'\"') - pg_relation_size('"'\"' || schemaname || '"'.\"' || tablename || '"'\"')) as index_size,
+    CASE WHEN pg_total_relation_size('"'\"' || schemaname || '"'.\"' || tablename || '"'\"') > 0
+    THEN round(100 * (pg_total_relation_size('"'\"' || schemaname || '"'.\"' || tablename || '"'\"') - pg_relation_size('"'\"' || schemaname || '"'.\"' || tablename || '"'\"')) / pg_total_relation_size('"'\"' || schemaname || '"'.\"' || tablename || '"'\"'))
+    ELSE 0
+    END as index_pct
+    FROM pg_tables t
+    JOIN pg_class cc ON t.tablename = cc.relname
+    WHERE t.schemaname NOT IN ('pg_catalog', 'information_schema')
+    AND pg_total_relation_size('"'\"' || schemaname || '"'.\"' || tablename || '"'\"') > 10 * 1024 * 1024
+    ORDER BY pg_total_relation_size('"'\"' || schemaname || '"'.\"' || tablename || '"'\"') DESC
+    LIMIT 10;"
+  
+  echo -e "\n${BLUE}Most Bloated Tables:${NC}"
+  sudo -u postgres psql -c "WITH RECURSIVE constants (vacuum_threshold) as (
+    values (20)
+    ),
+    table_bloat as (
+    select
+      schemaname, tablename, reltuples,
+      pg_table_size(schemaname || '.' || tablename) as table_size,
+      pg_indexes_size(schemaname || '.' || tablename) as index_size,
+      pg_total_relation_size(schemaname || '.' || tablename) as total_size,
+      n_live_tup, n_dead_tup,
+      case when n_live_tup = 0 then 0 else round((n_dead_tup::float / n_live_tup::float) * 100) end as dead_pct
+    from pg_stat_user_tables
+    join pg_tables using (schemaname, tablename)
+    join pg_class on relname = tablename
+    ),
+    bloat_summary as (
+      select 
+        schemaname, tablename, reltuples, 
+        table_size, index_size, total_size,
+        pg_size_pretty(table_size) as pretty_table_size,
+        pg_size_pretty(index_size) as pretty_index_size,
+        pg_size_pretty(total_size) as pretty_total_size,
+        n_live_tup, n_dead_tup, dead_pct
+      from table_bloat
+    )
+    select * from bloat_summary 
+    where dead_pct > (select vacuum_threshold from constants)
+    and n_live_tup > 1000
+    order by dead_pct desc limit 10;"
+}
+
+# Check transaction wraparound
+check_txid() {
+  log "Checking transaction ID wraparound..."
+  
+  echo -e "${BLUE}Transaction ID Wraparound Status:${NC}"
+  sudo -u postgres psql -c "SELECT 
+    datname, 
+    age(datfrozenxid) as xid_age,
+    round(100*(2147483647-age(datfrozenxid))/2147483647.0, 4) as pct_remaining,
+    pg_size_pretty(pg_database_size(datname)) as db_size
+    FROM pg_database 
+    ORDER BY age(datfrozenxid) DESC;"
+  
+  # Warn if any database is approaching wraparound
+  max_age=$(sudo -u postgres psql -tAc "SELECT max(age(datfrozenxid)) FROM pg_database;")
+  warn_threshold=1000000000  # About halfway to wraparound
+  
+  if [ "$max_age" -gt $warn_threshold ]; then
+    echo -e "${RED}WARNING: Database(s) are approaching transaction ID wraparound!${NC}"
+    echo "Consider running VACUUM FREEZE on affected databases."
+  else
+    echo -e "${GREEN}Transaction ID usage is normal${NC}"
+  fi
+}
+
+# Generate a complete report
+generate_report() {
+  report_file="$LOG_DIR/report_$(date +%Y%m%d_%H%M%S).html"
+  
+  log "Generating comprehensive HTML report..."
+  
+  # Get system status
+  service_status=$(systemctl is-active postgresql)
+  uptime=$(uptime -p)
+  hostname=$(hostname)
+  pg_version=$(sudo -u postgres psql -tAc "SELECT version();")
+  
+  # Create HTML report
+  cat > "$report_file" << EOF
+<!DOCTYPE html>
+<html>
+<head>
+  <title>PostgreSQL Status Report - $(date '+%Y-%m-%d %H:%M:%S')</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #f5f5f5;
+      color: #333;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      background-color: white;
+      padding: 20px;
+      border-radius: 5px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    h1, h2 {
+      color: #336699;
+    }
+    .status {
+      margin: 20px 0;
+      padding: 15px;
+      border-radius: 5px;
+    }
+    .status.ok {
+      background-color: #dff0d8;
+      border: 1px solid #d6e9c6;
+      color: #3c763d;
+    }
+    .status.warning {
+      background-color: #fcf8e3;
+      border: 1px solid #faebcc;
+      color: #8a6d3b;
+    }
+    .status.error {
+      background-color: #f2dede;
+      border: 1px solid #ebccd1;
+      color: #a94442;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 20px 0;
+    }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 8px;
+      text-align: left;
+    }
+    th {
+      background-color: #f2f2f2;
+    }
+    tr:nth-child(even) {
+      background-color: #f9f9f9;
+    }
+    .section {
+      margin: 30px 0;
+    }
+    pre {
+      background-color: #f5f5f5;
+      padding: 10px;
+      border-radius: 5px;
+      overflow-x: auto;
+    }
+    .footer {
+      margin-top: 30px;
+      text-align: center;
+      color: #777;
+      font-size: 0.9em;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>PostgreSQL Status Report</h1>
+    <p>Generated on: $(date '+%Y-%m-%d %H:%M:%S')</p>
+    
+    <div class="section">
+      <h2>System Information</h2>
+      <table>
+        <tr><td>Hostname</td><td>$hostname</td></tr>
+        <tr><td>System Uptime</td><td>$uptime</td></tr>
+        <tr><td>PostgreSQL Version</td><td>$pg_version</td></tr>
+        <tr><td>PostgreSQL Status</td><td>$service_status</td></tr>
+      </table>
+    </div>
+EOF
+  
+  # Database sizes
+  echo '<div class="section">' >> "$report_file"
+  echo '<h2>Database Sizes</h2>' >> "$report_file"
+  echo '<table>' >> "$report_file"
+  echo '<tr><th>Database</th><th>Size</th></tr>' >> "$report_file"
+  
+  sudo -u postgres psql -t -c "SELECT datname, pg_size_pretty(pg_database_size(datname)) FROM pg_database ORDER BY pg_database_size(datname) DESC;" | while read line; do
+    db=$(echo "$line" | awk '{print $1}')
+    size=$(echo "$line" | awk '{print $2}')
+    echo "<tr><td>$db</td><td>$size</td></tr>" >> "$report_file"
+  done
+  
+  echo '</table>' >> "$report_file"
+  echo '</div>' >> "$report_file"
+  
+  # Connection statistics
+  echo '<div class="section">' >> "$report_file"
+  echo '<h2>Connection Statistics</h2>' >> "$report_file"
+  
+  max_conn=$(sudo -u postgres psql -tAc "SHOW max_connections;")
+  current_conn=$(sudo -u postgres psql -tAc "SELECT count(*) FROM pg_stat_activity;")
+  pct_used=$((current_conn * 100 / max_conn))
+  
+  if [ $pct_used -gt 80 ]; then
+    echo "<div class='status error'>" >> "$report_file"
+  elif [ $pct_used -gt 50 ]; then
+    echo "<div class='status warning'>" >> "$report_file"
+  else
+    echo "<div class='status ok'>" >> "$report_file"
+  fi
+  
+  echo "Current connections: $current_conn / $max_conn ($pct_used%)" >> "$report_file"
+  echo "</div>" >> "$report_file"
+  
+  echo '<table>' >> "$report_file"
+  echo '<tr><th>Database</th><th>User</th><th>Application</th><th>Client</th><th>State</th><th>Count</th></tr>' >> "$report_file"
+  
+  sudo -u postgres psql -t -c "SELECT datname, usename, application_name, client_addr::text, state, count(*) FROM pg_stat_activity GROUP BY 1, 2, 3, 4, 5 ORDER BY count DESC;" | while read line; do
+    db=$(echo "$line" | awk '{print $1}')
+    user=$(echo "$line" | awk '{print $2}')
+    app=$(echo "$line" | awk '{print $3}')
+    client=$(echo "$line" | awk '{print $4}')
+    state=$(echo "$line" | awk '{print $5}')
+    count=$(echo "$line" | awk '{print $6}')
+    
+    echo "<tr><td>$db</td><td>$user</td><td>$app</td><td>$client</td><td>$state</td><td>$count</td></tr>" >> "$report_file"
+  done
+  
+  echo '</table>' >> "$report_file"
+  echo '</div>' >> "$report_file"
+  
+  # Long running queries
+  echo '<div class="section">' >> "$report_file"
+  echo '<h2>Long Running Queries</h2>' >> "$report_file"
+  
+  long_queries=$(sudo -u postgres psql -t -c "SELECT count(*) FROM pg_stat_activity WHERE state = 'active' AND (now() - pg_stat_activity.query_start) > interval '10 seconds';")
+  
+  if [ "$long_queries" -gt 10 ]; then
+    echo "<div class='status error'>" >> "$report_file"
+  elif [ "$long_queries" -gt 0 ]; then
+    echo "<div class='status warning'>" >> "$report_file"
+  else
+    echo "<div class='status ok'>" >> "$report_file"
+  fi
+  
+  echo "Number of long running queries: $long_queries" >> "$report_file"
+  echo "</div>" >> "$report_file"
+  
+  if [ "$long_queries" -gt 0 ]; then
+    echo '<table>' >> "$report_file"
+    echo '<tr><th>PID</th><th>Duration</th><th>User</th><th>Database</th><th>Query</th></tr>' >> "$report_file"
+    
+    sudo -u postgres psql -t -c "SELECT pid, now() - pg_stat_activity.query_start AS duration, usename, datname, substr(query, 1, 100) as query_snippet FROM pg_stat_activity WHERE state = 'active' AND (now() - pg_stat_activity.query_start) > interval '10 seconds' ORDER BY duration DESC;" | while read line; do
+      pid=$(echo "$line" | awk '{print $1}')
+      duration=$(echo "$line" | awk '{print $2, $3, $4}')
+      user=$(echo "$line" | awk '{print $5}')
+      db=$(echo "$line" | awk '{print $6}')
+      query=$(echo "$line" | cut -d ' ' -f 7-)
+      
+      echo "<tr><td>$pid</td><td>$duration</td><td>$user</td><td>$db</td><td>$query</td></tr>" >> "$report_file"
+    done
+    
+    echo '</table>' >> "$report_file"
+  fi
+  
+  echo '</div>' >> "$report_file"
+  
+  # Finish the HTML report
+  cat >> "$report_file" << EOF
+    <div class="footer">
+      <p>Report generated by PostgreSQL Monitor Script</p>
+    </div>
+  </div>
+</body>
+</html>
+EOF
+  
+  echo "HTML report generated: $report_file"
+}
+
+# Show usage
+usage() {
+  echo "PostgreSQL Monitoring Script"
+  echo ""
+  echo "Usage: $0 <command>"
+  echo ""
+  echo "Commands:"
+  echo "  status       Check PostgreSQL status"
+  echo "  sizes        Check database sizes"
+  echo "  conn         Check connections"
+  echo "  queries      Check for long-running queries"
+  echo "  locks        Check for locks"
+  echo "  indexes      Check index usage"
+  echo "  tables       Check table statistics"
+  echo "  replication  Check replication status"
+  echo "  cache        Check cache hit ratios"
+  echo "  slow         Check slow query statistics"
+  echo "  bloat        Check for table and index bloat"
+  echo "  txid         Check transaction ID wraparound"
+  echo "  all          Run all checks"
+  echo "  report       Generate HTML report"
+  echo "  help         Show this help message"
+  echo ""
+}
+
+# Main command handler
+case "${1:-help}" in
+  status)
+    check_status
+    ;;
+  sizes)
+    check_sizes
+    ;;
+  conn)
+    check_connections
+    ;;
+  queries)
+    check_long_queries
+    ;;
+  locks)
+    check_locks
+    ;;
+  indexes)
+    check_indexes
+    ;;
+  tables)
+    check_tables
+    ;;
+  replication)
+    check_replication
+    ;;
+  cache)
+    check_cache
+    ;;
+  slow)
+    check_slow_queries
+    ;;
+  bloat)
+    check_bloat
+    ;;
+  txid)
+    check_txid
+    ;;
+  all)
+    check_status
+    check_sizes
+    check_connections
+    check_long_queries
+    check_locks
+    check_indexes
+    check_tables
+    check_replication
+    check_cache
+    check_slow_queries
+    check_bloat
+    check_txid
+    ;;
+  report)
+    generate_report
+    ;;
+  help|*)
+    usage
+    ;;
+esac
+Make the script executable:
+
+bash
+chmod +x ~/dotfiles/postgres/scripts/pg_monitor.sh
+Add an alias for quick access:
+
+bash
+echo "alias pgmonitor='$HOME/dotfiles/postgres/scripts/pg_monitor.sh'" >> "$HOME/dotfiles/postgres/.pg_aliases"
+Conclusion
+This comprehensive PostgreSQL implementation provides a robust, self-healing database system that leverages Debian Trixie as the primary distribution with Bookworm as a fallback. Key features include:
+
+Automated Installation: One-command setup that configures PostgreSQL with optimized settings.
+Self-Healing Architecture: Automatic detection and repair of common PostgreSQL issues.
+Performance Optimization: Dynamic tuning based on system resources.
+Comprehensive Monitoring: Real-time tracking of database performance and health.
+Backup and Recovery: Scheduled backups with automated retention policies.
+Docker Integration: Containerized PostgreSQL for development and testing.
+Terraform Integration: Infrastructure as code for database resources.
+GitHub Automation: CI/CD workflows for database changes.
+Maintenance Tools: Scripts for routine maintenance and issue management.
+With this implementation, you have a complete PostgreSQL ecosystem that is reliable, performant, and self-maintaining.
+
+
+
+
+Retry
+
+
+
+
+
+

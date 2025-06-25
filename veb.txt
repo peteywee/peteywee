@@ -1,0 +1,1428 @@
+
+
+appcc.txt
+818 lines
+
+txt
+
+take out oci make this dockerized complete production buil
+
+Edit
+
+Transformed OCI architecture into dockerized production-ready solution.
+
+4s
+
+
+
+
+
+
+
+Docker-Based VenueShift Application Architecture
+I'll transform the OCI-based architecture into a fully dockerized production-ready solution. Here's a complete redesign that maintains the same application functionality but replaces OCI components with portable Docker-based alternatives.
+
+Overview of Changes
+The original architecture used OCI Compute VM, OCI Autonomous Database, OCI Vault, and OCI Container Registry, with Cloudflare for frontend hosting and connectivity. I'll convert this to a Docker-based solution, while keeping Cloudflare components (Pages and Tunnel) since they're valuable for frontend hosting and secure connectivity.
+
+New Dockerized Architecture
+Technology Stack
+Category	Old Technology	New Technology
+Compute	OCI Compute VM (Ampere A1)	Docker containers orchestrated with Docker Compose
+Frontend Hosting	Cloudflare Pages	Cloudflare Pages (unchanged)
+Database	OCI Autonomous DB (PostgreSQL Mode)	PostgreSQL container with persistent volume
+Authentication	Firebase Authentication	Firebase Authentication (unchanged)
+Secrets	OCI Vault	Docker secrets or .env files with Docker Compose
+Container Registry	OCI Container Registry (OCIR)	Docker Hub or GitHub Container Registry
+Entry Point/CDN	Cloudflare (Pages + Tunnel)	Cloudflare (Pages + Tunnel) (unchanged)
+IaC	Terraform (OCI Provider)	Docker Compose files
+CI/CD	GitHub Actions	GitHub Actions (modified for Docker)
+Process Management	pm2 (on VM)	Docker container orchestration
+Reverse Proxy	nginx (on VM)	Nginx container
+Directory Structure
+/venue-app
+├── .github/
+│   └── workflows/
+│       ├── ci.yml                # Test/Lint Workflow
+│       └── deploy.yml            # Docker build & deploy workflow
+├── .gitignore
+├── docker-compose.yml            # Main Docker Compose configuration
+├── docker-compose.prod.yml       # Production overrides
+├── Dockerfile.backend            # Backend Docker image
+├── Dockerfile.nginx              # Nginx configuration
+├── docker/                       # Docker-related files
+│   ├── nginx/                    # Nginx configuration
+│   │   ├── conf.d/               # Nginx site configs
+│   │   └── nginx.conf            # Base Nginx config
+│   ├── postgres/                 # PostgreSQL initialization scripts
+│   │   └── init.sql              # Database initialization
+│   └── cloudflared/              # Cloudflare tunnel config
+│       └── config.yml            # Tunnel configuration
+├── LICENSE
+├── README.md                     # Project Overview
+├── docs/
+│   ├── ARCHITECTURE.md           # Updated system architecture
+│   ├── SETUP_GUIDE.md            # Docker-based setup guide
+│   ├── DEVELOPMENT_WORKFLOW.md   # Development workflow with Docker
+│   ├── DEPLOYMENT_GUIDE.md       # Docker deployment procedures
+│   └── SECURITY_GUIDE.md         # Security with Docker
+├── packages/
+│   ├── backend/                  # Node.js/Express Backend
+│   │   ├── src/
+│   │   ├── package.json
+│   │   └── tsconfig.json
+│   └── frontend/                 # React/Vite Frontend
+│       ├── src/
+│       ├── public/
+│       ├── package.json
+│       ├── tsconfig.json
+│       └── vite.config.ts
+├── scripts/
+│   ├── README.md
+│   └── deploy.sh                 # Deployment script
+├── package.json                  # Root monorepo config
+└── tsconfig.base.json            # Base TS config
+Core Docker Configuration Files
+docker-compose.yml
+yaml
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres:/docker-entrypoint-initdb.d
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_DB=${DB_NAME}
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "${DB_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - backend
+
+  # Backend API
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+      - SESSION_SECRET=${SESSION_SECRET}
+    restart: unless-stopped
+    networks:
+      - backend
+
+  # Nginx reverse proxy
+  nginx:
+    build:
+      context: .
+      dockerfile: Dockerfile.nginx
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - backend
+
+  # Cloudflared tunnel client
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: tunnel run
+    volumes:
+      - ./docker/cloudflared:/etc/cloudflared
+    restart: unless-stopped
+    networks:
+      - backend
+
+volumes:
+  postgres_data:
+
+networks:
+  backend:
+    driver: bridge
+Dockerfile.backend
+dockerfile
+FROM node:18-alpine as builder
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+COPY packages/backend/package*.json ./packages/backend/
+
+# Install dependencies
+RUN npm ci
+
+# Copy source code
+COPY packages/backend ./packages/backend
+COPY tsconfig.base.json ./
+
+# Build TypeScript
+RUN cd packages/backend && npm run build
+
+# Production image
+FROM node:18-alpine
+
+WORKDIR /app
+
+COPY --from=builder /app/packages/backend/package*.json ./
+COPY --from=builder /app/packages/backend/dist ./dist
+
+# Install production dependencies only
+RUN npm ci --production
+
+# Set user to non-root
+USER node
+
+# Expose API port
+EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+  CMD wget -qO- http://localhost:8080/health || exit 1
+
+CMD ["node", "dist/server/index.js"]
+Dockerfile.nginx
+dockerfile
+FROM nginx:alpine
+
+# Remove default nginx config
+RUN rm /etc/nginx/conf.d/default.conf
+
+# Copy custom nginx config
+COPY docker/nginx/conf.d /etc/nginx/conf.d
+COPY docker/nginx/nginx.conf /etc/nginx/nginx.conf
+
+# Expose port 80
+EXPOSE 80
+
+# Test nginx configuration and run
+CMD ["nginx", "-g", "daemon off;"]
+Deployment Workflow (GitHub Actions)
+yaml
+name: Deploy VenueShift
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Run tests
+        run: npm test
+      - name: Run linting
+        run: npm run lint
+
+  deploy-frontend:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+      - name: Install dependencies
+        run: cd packages/frontend && npm ci
+      - name: Build frontend
+        run: cd packages/frontend && npm run build
+        env:
+          VITE_API_BASE_URL: ${{ secrets.API_URL }}
+          VITE_FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
+          # Add other environment variables
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@2.0.0
+        with:
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+          command: pages deploy packages/frontend/dist --project-name=venueshift
+
+  deploy-backend:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Log in to container registry
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      
+      - name: Build and push backend
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ./Dockerfile.backend
+          push: true
+          tags: ghcr.io/${{ github.repository }}/backend:latest
+      
+      - name: Build and push nginx
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ./Dockerfile.nginx
+          push: true
+          tags: ghcr.io/${{ github.repository }}/nginx:latest
+          
+      - name: Deploy to server
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          script: |
+            cd /opt/venueshift
+            docker-compose pull
+            docker-compose down
+            docker-compose up -d
+Development Workflow
+Local Development with Docker
+Initial Setup:
+bash
+# Clone repository
+git clone <your-repo-url>
+cd venue-app
+
+# Create .env file for local development
+cp .env.example .env
+
+# Start development environment
+docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+Frontend Development:
+bash
+# Run frontend development server (outside Docker for better DX)
+cd packages/frontend
+npm install
+npm run dev
+Backend Development:
+bash
+# Backend code changes are mounted into container for live reload
+# Watch for changes
+cd packages/backend
+npm run watch
+Production Deployment Guide
+Server Preparation:
+Provision a server (e.g., DigitalOcean Droplet, AWS EC2, etc.)
+Install Docker and Docker Compose
+Set up Cloudflare Tunnel for secure connectivity
+Deployment Process:
+bash
+# On your server
+mkdir -p /opt/venueshift
+cd /opt/venueshift
+
+# Create .env file with production secrets
+# (Can be copied securely during CI/CD)
+
+# Pull and start containers
+docker-compose pull
+docker-compose up -d
+Monitoring:
+bash
+# View logs
+docker-compose logs -f
+
+# Check container status
+docker-compose ps
+Security Enhancements for Docker
+Secrets Management:
+Use .env files for Docker Compose (not committed to Git)
+For more sensitive environments, use Docker Swarm secrets or a secrets manager like HashiCorp Vault
+Container Security:
+Run containers as non-root users
+Use minimal base images (Alpine-based when possible)
+Implement content trust for Docker images
+Regular vulnerability scanning with tools like Trivy
+Network Security:
+Keep Cloudflare Tunnel for secure ingress
+Use Docker networks to isolate services
+Expose only necessary ports
+Database Security:
+Persistent volume for PostgreSQL data
+Regular automated backups
+Proper user permissions
+Migration From OCI to Docker
+Data Migration
+Database:
+Dump data from OCI Autonomous Database:
+bash
+pg_dump -h <oci-db-host> -U <username> -d <dbname> > venueshift_backup.sql
+Restore to PostgreSQL container:
+bash
+cat venueshift_backup.sql | docker-compose exec -T postgres psql -U <username> -d <dbname>
+Configuration:
+Migrate secrets from OCI Vault to .env files or another secrets manager
+Update Firebase configuration if needed
+Testing:
+Validate all functionality in the Docker environment before switching production traffic
+Benefits of This Approach
+Portability: Deploy anywhere Docker runs (any cloud provider, on-premises)
+Reproducibility: Consistent environments from development to production
+Scalability: Easy to scale services independently
+Cost-Effective: Choose the most cost-effective hosting provider
+No Vendor Lock-In: Easily migrate between cloud providers
+Developer Experience: Simplified local development environment
+Would you like me to expand on any specific aspect of this dockerized architecture?
+
+
+
+
+Retry
+update all configs es strict lint
+
+Edit
+
+Strategized comprehensive linting configurations for TypeScript project.
+
+1s
+
+
+
+Enhanced Strict Linting and TypeScript Configuration
+I'll update all the configuration files to implement strict linting and type checking for the dockerized VenueShift application. Here are the enhanced configurations:
+
+Root Configuration Files
+.eslintrc.js (Root)
+javascript
+module.exports = {
+  root: true,
+  parser: '@typescript-eslint/parser',
+  parserOptions: {
+    project: ['./tsconfig.base.json', './packages/*/tsconfig.json'],
+    ecmaVersion: 2021,
+    sourceType: 'module',
+    ecmaFeatures: {
+      jsx: true
+    }
+  },
+  settings: {
+    react: {
+      version: 'detect'
+    },
+    'import/resolver': {
+      typescript: {} // This loads <rootdir>/tsconfig.json to eslint
+    }
+  },
+  plugins: [
+    '@typescript-eslint',
+    'react-hooks',
+    'prettier',
+    'import',
+    'jsx-a11y',
+    'sonarjs',
+    'security'
+  ],
+  extends: [
+    'eslint:recommended',
+    'plugin:@typescript-eslint/recommended',
+    'plugin:@typescript-eslint/recommended-requiring-type-checking',
+    'plugin:react/recommended',
+    'plugin:react-hooks/recommended',
+    'plugin:import/errors',
+    'plugin:import/warnings',
+    'plugin:import/typescript',
+    'plugin:jsx-a11y/recommended',
+    'plugin:sonarjs/recommended',
+    'plugin:security/recommended',
+    'plugin:prettier/recommended'
+  ],
+  rules: {
+    // General ESLint rules
+    'no-console': ['warn', { allow: ['warn', 'error'] }],
+    'no-param-reassign': 'error',
+    'no-var': 'error',
+    'prefer-const': 'error',
+    
+    // TypeScript specific rules
+    '@typescript-eslint/explicit-function-return-type': ['error', {
+      allowExpressions: true,
+      allowTypedFunctionExpressions: true
+    }],
+    '@typescript-eslint/no-explicit-any': 'error',
+    '@typescript-eslint/no-unused-vars': ['error', { 
+      argsIgnorePattern: '^_',
+      varsIgnorePattern: '^_' 
+    }],
+    '@typescript-eslint/no-non-null-assertion': 'error',
+    '@typescript-eslint/strict-boolean-expressions': 'error',
+    '@typescript-eslint/no-unnecessary-type-assertion': 'error',
+    '@typescript-eslint/no-floating-promises': 'error',
+    '@typescript-eslint/no-misused-promises': 'error',
+    '@typescript-eslint/await-thenable': 'error',
+    '@typescript-eslint/restrict-template-expressions': 'error',
+    '@typescript-eslint/unbound-method': 'error',
+    
+    // Import rules
+    'import/order': ['error', {
+      'groups': ['builtin', 'external', 'internal', 'parent', 'sibling', 'index'],
+      'newlines-between': 'always',
+      'alphabetize': { order: 'asc', caseInsensitive: true }
+    }],
+    'import/no-default-export': 'warn',
+    
+    // React specific rules
+    'react/prop-types': 'off', // TypeScript handles this
+    'react/react-in-jsx-scope': 'off', // Not needed in React 17+
+    'react-hooks/rules-of-hooks': 'error',
+    'react-hooks/exhaustive-deps': 'error',
+    
+    // Security
+    'security/detect-object-injection': 'warn',
+    'security/detect-non-literal-fs-filename': 'warn',
+    
+    // SonarJS
+    'sonarjs/cognitive-complexity': ['error', 15],
+    'sonarjs/no-identical-functions': 'error',
+    'sonarjs/no-duplicate-string': ['error', { 'threshold': 3 }],
+    
+    // Prettier
+    'prettier/prettier': ['error', {}, { usePrettierrc: true }]
+  },
+  overrides: [
+    {
+      files: ['**/*.test.ts', '**/*.test.tsx', '**/*.spec.ts', '**/*.spec.tsx'],
+      extends: ['plugin:jest/recommended'],
+      plugins: ['jest'],
+      rules: {
+        '@typescript-eslint/no-explicit-any': 'off',
+        '@typescript-eslint/no-non-null-assertion': 'off'
+      }
+    }
+  ]
+};
+.prettierrc
+json
+{
+  "singleQuote": true,
+  "trailingComma": "all",
+  "tabWidth": 2,
+  "semi": true,
+  "printWidth": 100,
+  "bracketSpacing": true,
+  "arrowParens": "always",
+  "endOfLine": "lf",
+  "overrides": [
+    {
+      "files": "*.{ts,tsx}",
+      "options": {
+        "parser": "typescript"
+      }
+    }
+  ]
+}
+tsconfig.base.json
+json
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "lib": ["DOM", "DOM.Iterable", "ESNext"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": false,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitAny": true,
+    "noImplicitThis": true,
+    "noImplicitReturns": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "strictBindCallApply": true,
+    "strictPropertyInitialization": true,
+    "forceConsistentCasingInFileNames": true,
+    "allowSyntheticDefaultImports": true,
+    "allowJs": false,
+    "declaration": true,
+    "sourceMap": true,
+    "declarationMap": true,
+    "incremental": true
+  },
+  "exclude": ["node_modules", "dist", "build", "coverage"]
+}
+package.json (Root)
+json
+{
+  "name": "venueshift",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "lint": "eslint . --ext .ts,.tsx --max-warnings 0",
+    "lint:fix": "eslint . --ext .ts,.tsx --fix",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "type-check": "tsc --noEmit",
+    "test": "npm run lint && npm run format:check && npm run type-check && npm run test:all",
+    "test:all": "npm run test --workspaces",
+    "prepare": "husky install"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "eslint": "^8.56.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-import-resolver-typescript": "^3.6.1",
+    "eslint-plugin-import": "^2.29.1",
+    "eslint-plugin-jest": "^27.6.0",
+    "eslint-plugin-jsx-a11y": "^6.8.0",
+    "eslint-plugin-prettier": "^5.1.0",
+    "eslint-plugin-react": "^7.33.2",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "eslint-plugin-security": "^1.7.1",
+    "eslint-plugin-sonarjs": "^0.23.0",
+    "husky": "^8.0.3",
+    "lint-staged": "^15.2.0",
+    "prettier": "^3.1.1",
+    "typescript": "^5.3.3"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md}": [
+      "prettier --write"
+    ]
+  }
+}
+Frontend Configuration
+packages/frontend/tsconfig.json
+json
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    }
+  },
+  "include": ["src"],
+  "references": [{ "path": "./tsconfig.node.json" }]
+}
+packages/frontend/tsconfig.node.json
+json
+{
+  "compilerOptions": {
+    "composite": true,
+    "skipLibCheck": true,
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowSyntheticDefaultImports": true,
+    "strict": true
+  },
+  "include": ["vite.config.ts"]
+}
+packages/frontend/package.json (Scripts section)
+json
+{
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "lint": "eslint src --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "lint:fix": "eslint src --ext ts,tsx --fix",
+    "preview": "vite preview",
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  }
+}
+Backend Configuration
+packages/backend/tsconfig.json
+json
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "outDir": "dist",
+    "rootDir": "src",
+    "baseUrl": "src",
+    "esModuleInterop": true,
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "noImplicitThis": true,
+    "alwaysStrict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "sourceMap": true,
+    "paths": {
+      "@/*": ["*"]
+    }
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "**/*.test.ts"]
+}
+packages/backend/package.json (Scripts section)
+json
+{
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server/index.js",
+    "dev": "ts-node-dev --respawn --transpile-only src/server/index.ts",
+    "lint": "eslint src --ext ts --report-unused-disable-directives --max-warnings 0",
+    "lint:fix": "eslint src --ext ts --fix",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "type-check": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate:pg",
+    "db:push": "drizzle-kit push:pg",
+    "db:studio": "drizzle-kit studio"
+  }
+}
+CI/CD Pipeline Enhancement
+.github/workflows/ci.yml
+yaml
+name: CI
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Check formatting
+        run: npm run format:check
+  
+  type-check:
+    name: Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Type check
+        run: npm run type-check
+  
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Run tests
+        run: npm run test:all
+Git Hooks with Husky
+.husky/pre-commit
+bash
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+npx lint-staged
+.husky/commit-msg
+bash
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+npx --no -- commitlint --edit $1
+Additional Setup for Enhanced Linting
+commitlint.config.js
+javascript
+module.exports = {
+  extends: ['@commitlint/config-conventional'],
+  rules: {
+    'body-leading-blank': [1, 'always'],
+    'body-max-line-length': [2, 'always', 100],
+    'footer-leading-blank': [1, 'always'],
+    'footer-max-line-length': [2, 'always', 100],
+    'header-max-length': [2, 'always', 100],
+    'subject-case': [
+      2,
+      'never',
+      ['sentence-case', 'start-case', 'pascal-case', 'upper-case'],
+    ],
+    'subject-empty': [2, 'never'],
+    'subject-full-stop': [2, 'never', '.'],
+    'type-case': [2, 'always', 'lower-case'],
+    'type-empty': [2, 'never'],
+    'type-enum': [
+      2,
+      'always',
+      [
+        'build',
+        'chore',
+        'ci',
+        'docs',
+        'feat',
+        'fix',
+        'perf',
+        'refactor',
+        'revert',
+        'style',
+        'test'
+      ],
+    ],
+  },
+};
+Docker Integration for Linting
+Update the Dockerfile.backend to include linting in the build process:
+
+dockerfile
+FROM node:18-alpine as builder
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+COPY packages/backend/package*.json ./packages/backend/
+COPY .eslintrc.js .prettierrc tsconfig.base.json ./
+
+# Install dependencies including dev dependencies
+RUN npm ci
+
+# Copy source code
+COPY packages/backend ./packages/backend
+
+# Run linting and type checking as part of build
+RUN npm run lint
+RUN npm run type-check
+
+# Build TypeScript
+RUN cd packages/backend && npm run build
+
+# Production image continues as before...
+FROM node:18-alpine
+# ...
+Benefits of Enhanced Linting and Type Checking
+Improved Code Quality: Catches errors before they make it to production
+Consistent Styling: Enforces a uniform code style across the project
+Better TypeScript Usage: Strict TypeScript configuration prevents many common bugs
+Security Checks: ESLint security plugin helps identify security vulnerabilities
+Reduced Technical Debt: Prevents problematic patterns from being introduced
+Improved Developer Experience: Clear rules and automated formatting save time
+CI Integration: Ensures all code merged to main branches meets quality standards
+These strict linting configurations will significantly improve the overall code quality and maintainability of the VenueShift application. The configuration enforces consistent styling, strict type checking, and best practices for React, Node.js, and security throughout the codebase.
+
+
+
+
+Retry
+set up in gcp
+
+Edit
+
+Engineered comprehensive GCP deployment strategy for VenueShift.
+
+2s
+
+
+
+
+VenueShift GCP Deployment Guide
+This guide will walk you through setting up the dockerized VenueShift application on Google Cloud Platform (GCP) using a combination of Cloud Run, Cloud SQL, and other GCP services for a production-ready, scalable deployment.
+
+GCP Architecture Overview
+Show Image
+
+We'll set up:
+
+Cloud Run for hosting the containerized backend
+Cloud SQL for PostgreSQL database
+Artifact Registry for container images
+Secret Manager for secrets
+Cloudflare remains for frontend hosting and Tunnel connectivity
+GitHub Actions for CI/CD pipeline
+Prerequisites
+GCP Account with billing enabled
+gcloud CLI installed locally
+Docker installed locally
+Terraform installed locally (optional but recommended)
+GitHub repository with your code
+Step 1: Set up GCP Project
+bash
+# Create a new GCP project
+gcloud projects create venueshift-app --name="VenueShift App"
+
+# Set the project as active
+gcloud config set project venueshift-app
+
+# Enable required APIs
+gcloud services enable cloudbuild.googleapis.com \
+    run.googleapis.com \
+    artifactregistry.googleapis.com \
+    sqladmin.googleapis.com \
+    secretmanager.googleapis.com \
+    cloudresourcemanager.googleapis.com \
+    iam.googleapis.com
+Step 2: Set up Artifact Registry
+bash
+# Create a Docker repository in Artifact Registry
+gcloud artifacts repositories create venueshift-repo \
+    --repository-format=docker \
+    --location=us-central1 \
+    --description="VenueShift Docker Repository"
+
+# Configure Docker to use gcloud as a credential helper
+gcloud auth configure-docker us-central1-docker.pkg.dev
+Step 3: Set up Terraform for Infrastructure
+Create a directory for Terraform configuration:
+
+bash
+mkdir -p infra/gcp
+cd infra/gcp
+Create main.tf:
+
+hcl
+provider "google" {
+  project = var.project_id
+  region  = var.region
+}
+
+# Cloud SQL PostgreSQL instance
+resource "google_sql_database_instance" "main" {
+  name             = "venueshift-db-instance"
+  database_version = "POSTGRES_13"
+  region           = var.region
+  
+  settings {
+    tier = "db-f1-micro" # Smallest instance for dev, scale up for production
+    
+    backup_configuration {
+      enabled = true
+      point_in_time_recovery_enabled = true
+    }
+    
+    ip_configuration {
+      ipv4_enabled    = true
+      private_network = google_compute_network.private_network.id
+    }
+  }
+  
+  deletion_protection = true # Set to false to allow Terraform to destroy
+}
+
+# Database
+resource "google_sql_database" "database" {
+  name     = "venueshift"
+  instance = google_sql_database_instance.main.name
+}
+
+# Database user
+resource "google_sql_user" "user" {
+  name     = "venueshift_user"
+  instance = google_sql_database_instance.main.name
+  password = var.db_password
+}
+
+# VPC Network for private connectivity
+resource "google_compute_network" "private_network" {
+  name                    = "venueshift-network"
+  auto_create_subnetworks = true
+}
+
+# Cloud Run service for backend
+resource "google_cloud_run_service" "backend" {
+  name     = "venueshift-backend"
+  location = var.region
+  
+  template {
+    spec {
+      containers {
+        image = "us-central1-docker.pkg.dev/${var.project_id}/venueshift-repo/backend:latest"
+        
+        env {
+          name  = "NODE_ENV"
+          value = "production"
+        }
+        
+        env {
+          name  = "DB_HOST"
+          value = google_sql_database_instance.main.connection_name
+        }
+        
+        env {
+          name  = "DB_USER"
+          value = google_sql_user.user.name
+        }
+        
+        env {
+          name = "DB_PASSWORD"
+          value_from {
+            secret_key_ref {
+              name = google_secret_manager_secret.db_password.secret_id
+              key  = "latest"
+            }
+          }
+        }
+        
+        env {
+          name  = "DB_NAME"
+          value = google_sql_database.database.name
+        }
+        
+        env {
+          name = "SESSION_SECRET"
+          value_from {
+            secret_key_ref {
+              name = google_secret_manager_secret.session_secret.secret_id
+              key  = "latest"
+            }
+          }
+        }
+        
+        resources {
+          limits = {
+            cpu    = "1000m"
+            memory = "512Mi"
+          }
+        }
+      }
+      
+      # Service account for the Cloud Run service
+      service_account_name = google_service_account.cloudrun_service_account.email
+    }
+  }
+  
+  traffic {
+    percent         = 100
+    latest_revision = true
+  }
+  
+  depends_on = [
+    google_secret_manager_secret_version.db_password,
+    google_secret_manager_secret_version.session_secret
+  ]
+}
+
+# Service account for Cloud Run
+resource "google_service_account" "cloudrun_service_account" {
+  account_id   = "cloudrun-service-account"
+  display_name = "Service Account for Cloud Run"
+}
+
+# Grant access to secrets
+resource "google_secret_manager_secret_iam_member" "db_password_access" {
+  secret_id = google_secret_manager_secret.db_password.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.cloudrun_service_account.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "session_secret_access" {
+  secret_id = google_secret_manager_secret.session_secret.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.cloudrun_service_account.email}"
+}
+
+# Secrets
+resource "google_secret_manager_secret" "db_password" {
+  secret_id = "db-password"
+  
+  replication {
+    automatic = true
+  }
+}
+
+resource "google_secret_manager_secret_version" "db_password" {
+  secret      = google_secret_manager_secret.db_password.id
+  secret_data = var.db_password
+}
+
+resource "google_secret_manager_secret" "session_secret" {
+  secret_id = "session-secret"
+  
+  replication {
+    automatic = true
+  }
+}
+
+resource "google_secret_manager_secret_version" "session_secret" {
+  secret      = google_secret_manager_secret.session_secret.id
+  secret_data = var.session_secret
+}
+
+# Cloud Run public access
+resource "google_cloud_run_service_iam_member" "public" {
+  service  = google_cloud_run_service.backend.name
+  location = google_cloud_run_service.backend.location
+  role     = "roles/run.invoker"
+  member   = "allUsers" # For public access
+}
+Create variables.tf:
+
+hcl
+variable "project_id" {
+  description = "GCP Project ID"
+  type        = string
+}
+
+variable "region" {
+  description = "GCP Region"
+  type        = string
+  default     = "us-central1"
+}
+
+variable "db_password" {
+  description = "Database password"
+  type        = string
+  sensitive   = true
+}
+
+variable "session_secret" {
+  description = "Session secret for backend"
+  type        = string
+  sensitive   = true
+}
+Create outputs.tf:
+
+hcl
+output "cloud_run_url" {
+  value = google_cloud_run_service.backend.status[0].url
+}
+
+output "db_instance_connection_name" {
+  value = google_sql_database_instance.main.connection_name
+}
+Step 4: Configure GitHub Actions for GCP Deployment
+Update .github/workflows/deploy.yml:
+
+yaml
+name: Deploy VenueShift
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Run tests
+        run: npm test
+      - name: Run linting
+        run: npm run lint
+
+  deploy-frontend:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+      - name: Install dependencies
+        run: cd packages/frontend && npm ci
+      - name: Build frontend
+        run: cd packages/frontend && npm run build
+        env:
+          VITE_API_BASE_URL: ${{ secrets.API_URL }}
+          VITE_FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@2.0.0
+        with:
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+          command: pages deploy packages/frontend/dist --project-name=venueshift
+
+  deploy-backend:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      # Authenticate to Google Cloud
+      - id: 'auth'
+        uses: 'google-github-actions/auth@v1'
+        with:
+          credentials_json: '${{ secrets.GCP_SA_KEY }}'
+      
+      # Set up Cloud SDK
+      - name: 'Set up Cloud SDK'
+        uses: 'google-github-actions/setup-gcloud@v1'
+      
+      # Build and push the Docker image
+      - name: Build and push Docker image
+        run: |
+          gcloud auth configure-docker us-central1-docker.pkg.dev
+          docker build -t us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/venueshift-repo/backend:${{ github.sha }} -f Dockerfile.backend .
+          docker tag us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/venueshift-repo/backend:${{ github.sha }} us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/venueshift-repo/backend:latest
+          docker push us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/venueshift-repo/backend:${{ github.sha }}
+          docker push us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/venueshift-repo/backend:latest
+      
+      # Deploy to Cloud Run
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy venueshift-backend \
+            --image us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/venueshift-repo/backend:${{ github.sha }} \
+            --region us-central1 \
+            --platform managed \
+            --allow-unauthenticated
+Step 5: Update Docker Configuration for GCP
+Update Dockerfile.backend to be optimized for Cloud Run:
+
+dockerfile
+FROM node:18-alpine as builder
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+COPY packages/backend/package*.json ./packages/backend/
+COPY .eslintrc.js .prettierrc tsconfig.base.json ./
+
+# Install dependencies
+RUN npm ci
+
+# Copy source code
+COPY packages/backend ./packages/backend
+
+# Run linting and type checking
+RUN npm run lint
+RUN npm run type-check
+
+# Build TypeScript
+RUN cd packages/backend && npm run build
+
+# Production image
+FROM node:18-alpine
+
+WORKDIR /app
+
+COPY --from=builder /app/packages/backend/package*.json ./
+COPY --from=builder /app/packages/backend/dist ./dist
+
+# Install production dependencies only
+RUN npm ci --production
+
+# Set user to non-root
+USER node
+
+# Cloud Run will set PORT environment variable
+ENV PORT=8080
+
+# Expose port
+EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+  CMD wget -qO- http://localhost:8080/health || exit 1
+
+CMD ["node", "dist/server/index.js"]
+Step 6: Configure Database Connectivity for Cloud Run
+Cloud Run connects to Cloud SQL using the Cloud SQL Auth Proxy, which is automatically handled by the platform. Update your backend database connection code to support this:
+
+typescript
+// In your database connection module
+import { Pool } from 'pg';
+
+const createPool = async (): Promise<Pool> => {
+  const isProduction = process.env.NODE_ENV === 'production';
+  
+  // For Cloud Run to Cloud SQL connection
+  if (isProduction && process.env.DB_HOST?.includes(':')) {
+    // Cloud SQL connection format
+    const connectionName = process.env.DB_HOST;
+    return new Pool({
+      user: process.env.DB_USER,
+      password: process.env.DB_PASSWORD,
+      database: process.env.DB_NAME,
+      host: `/cloudsql/${connectionName}`,
+    });
+  }
+  
+  // For local development or other environments
+  return new Pool({
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME,
+    host: process.env.DB_HOST,
+    port: parseInt(process.env.DB_PORT || '5432'),
+  });
+};
+
+export const pool = await createPool();
+Step 7: Set up Cloudflare Tunnel to GCP
+Configure Cloudflare Tunnel to connect to your Cloud Run service:
+
+Create a tunnel in Cloudflare Zero Trust dashboard
+Configure the tunnel to point to your Cloud Run service URL (from Terraform output)
+Set up DNS records in Cloudflare to route API traffic to the tunnel
+Step 8: Deploy to GCP using Terraform
+bash
+cd infra/gcp
+
+# Initialize Terraform
+terraform init
+
+# Create a terraform.tfvars file (DO NOT COMMIT THIS FILE)
+echo 'project_id = "venueshift-app"' > terraform.tfvars
+echo 'db_password = "your-secure-password"' >> terraform.tfvars
+echo 'session_secret = "your-secure-session-secret"' >> terraform.tfvars
+
+# Apply Terraform configuration
+terraform apply
+Step 9: Set Up GitHub Secrets
+Add the following secrets to your GitHub repository:
+
+GCP_PROJECT_ID: Your GCP project ID
+GCP_SA_KEY: Service account JSON key with permissions for Artifact Registry and Cloud Run
+CF_API_TOKEN: Cloudflare API token
+CF_ACCOUNT_ID: Cloudflare account ID
+API_URL: Cloud Run service URL (from Terraform output)
+FIREBASE_API_KEY: Your Firebase API key
+Step 10: Update Cloudflared Configuration
+Update your docker/cloudflared/config.yml to point to the Cloud Run service:
+
+yaml
+tunnel: <your-tunnel-id>
+credentials-file: /etc/cloudflared/<your-tunnel-id>.json
+
+ingress:
+  # Route API traffic to Cloud Run
+  - hostname: api.yourdomain.com
+    service: https://<your-cloud-run-service-url>
+  # Default rule
+  - service: http_status:404
+Step 11: First Deployment
+Trigger a deployment by pushing to your main branch or using GitHub Actions workflow_dispatch event.
+
+Monitoring and Management
+Logs: View application logs in Cloud Logging
+bash
+gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=venueshift-backend"
+Monitoring: Set up Cloud Monitoring for your services
+bash
+# Create uptime check for backend
+gcloud monitoring uptime-check-configs create venueshift-backend-check \
+  --display-name="VenueShift Backend" \
+  --http-check=host=<your-cloud-run-url>,path=/health
+Database Management: Connect to the database for administration
+bash
+# Use Cloud SQL Proxy or gcloud for direct connection
+gcloud sql connect venueshift-db-instance --user=venueshift_user
+Cost Optimization
+Cloud Run only charges for the time your containers actually run, making it cost-effective for variable workloads. For optimization:
+
+Set appropriate memory limits and CPU allocation
+Use Cloud SQL's smallest instance size for development
+Consider setting minimum instances to 0 for non-critical workloads
+Set up budget alerts in GCP to monitor spending
+Security Best Practices
+IAM: Follow the principle of least privilege for service accounts
+Secrets: Use Secret Manager for all sensitive information
+Network: Configure VPC Service Controls for additional protection
+Container: Keep your container images updated and scan for vulnerabilities
+Scaling Considerations
+As your application grows:
+
+Increase Cloud Run's concurrency setting for better resource utilization
+Scale up Cloud SQL instance type for higher performance
+Consider Cloud CDN for caching static assets
+Implement database connection pooling for efficiency
+This setup provides a scalable, resilient, and cost-effective foundation for your VenueShift application on Google Cloud Platform, leveraging the best of serverless containers with Cloud Run and managed databases with Cloud SQL.
+
+
+
+
+Retry
+
+
+
+
+
+

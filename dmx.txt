@@ -1,0 +1,4691 @@
+
+
+linex.txt
+2,237 lines
+
+txt
+
+
+linuxenv.txt
+145 lines
+
+txt
+
+
+linuxset.txt
+1,602 lines
+
+txt
+
+
+pot.txt
+1,484 lines
+
+txt
+
+
+projects.json
+1 line
+
+json
+
+
+setupd.txt
+1,603 lines
+
+txt
+
+
+sys.txt
+600 lines
+
+txt
+
+incorporate all
+
+Edit
+
+Synthesized comprehensive Linux environment setup strategy
+8s
+
+
+
+
+Comprehensive Linux Environment Setup Framework
+I've integrated all your documents into a cohesive framework that covers environment bootstrapping, color systems, project scaffolding, and knowledge management. This system provides a reproducible, documented approach to setting up and maintaining Linux environments.
+
+1. Directory Structure
+$HOME/
+├── architecture/
+│   └── infrastructure/     # Terraform modules & projects
+│       ├── modules/        # Reusable TF components including color_system
+│       ├── projects/       # Project-specific Terraform configurations
+│       └── manifests/      # Package & service lists
+├── dotfiles/               # Environment configuration files
+│   ├── bootstrap.sh        # Main environment setup script
+│   ├── scaffold.sh         # Project scaffolding script
+│   ├── bash/               # Shell configurations (.bashrc, .bash_aliases)
+│   ├── git/                # Git configurations (.gitconfig)
+│   ├── hooks/              # Git hooks (pre-commit, commit-msg)
+│   ├── nano/               # Nano editor configurations
+│   ├── input/              # Input configurations (.inputrc)
+│   ├── misc/               # Additional configs (.dir_colors)
+│   ├── custom/             # Your custom configurations
+│   └── templates/          # Project templates (express, flask, etc.)
+├── projects/
+│   ├── tagging-system/     # Metadata tagging system
+│   │   ├── scripts/        # Automation scripts
+│   │   ├── metadata/       # Schema definitions
+│   │   ├── tests/          # Unit tests
+│   │   └── docs/           # Documentation
+│   ├── nae/                # Custom IDE project
+│   │   ├── core/           # Core IDE functionality
+│   │   ├── themes/         # Theme configurations
+│   │   ├── plugins/        # IDE plugins
+│   │   └── docs/           # Documentation
+│   ├── finance-app/        # Financial application
+│   └── pro-system/         # Project management with .pro files
+└── knowledge_base/         # Knowledge management system
+    ├── raw/                # Unprocessed source files
+    ├── docs/               # Generated documentation
+    ├── metadata/           # Structured metadata
+    ├── database/           # Knowledge database
+    ├── scripts/            # KB management scripts
+    └── tools/              # KB utilities
+2. Bootstrap Process
+Create ~/dotfiles/bootstrap.sh to set up your entire environment:
+
+bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+DOTFILES_DIR="$HOME/dotfiles"
+LOG_DIR="$HOME/logs"
+BACKUP_DIR="$HOME/backups"
+
+# Create necessary directories
+mkdir -p "$LOG_DIR" "$BACKUP_DIR"
+
+echo "==> 1. Updating APT & installing core packages"
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y \
+  git curl wget build-essential \
+  nano htop less \
+  python3 python3-pip python3-venv \
+  nodejs npm \
+  postgresql postgresql-contrib libpq-dev \
+  docker.io docker-compose \
+  terraform jq \
+  gnupg lsb-release apt-transport-https ca-certificates \
+  cloudflare-wrangler \
+  kubectl
+
+echo "==> 2. Setting up Color Role System"
+# Install Color Role System
+if [ ! -d "$HOME/.color_system" ]; then
+  mkdir -p "$HOME/.color_system"
+  
+  # Create color_roles.json
+  cat > "$HOME/.color_system/color_roles.json" << EOF
+{
+  "roles": {
+    "warning": {"color": "yellow", "code": "\\033[1;33m"},
+    "error": {"color": "red", "code": "\\033[1;31m"},
+    "success": {"color": "green", "code": "\\033[1;32m"},
+    "info": {"color": "blue", "code": "\\033[1;34m"},
+    "reset": {"color": "default", "code": "\\033[0m"}
+  }
+}
+EOF
+
+  # Create loader script
+  cat > "$HOME/.color_system/color_roles_loader.sh" << EOF
+#!/usr/bin/env bash
+# Version: v1.0.0
+# Color Role System Loader
+
+export COLOR_ROLES_FILE="\$HOME/.color_system/color_roles.json"
+
+color_apply() {
+  local role="\$1"
+  local text="\${2:-}"
+  
+  # If no text provided, just output the color code
+  if [[ -z "\$text" ]]; then
+    jq -r ".roles.\${role}.code" "\$COLOR_ROLES_FILE" 2>/dev/null || echo ""
+    return
+  fi
+  
+  # Get color code, apply to text, and reset
+  local color_code=\$(jq -r ".roles.\${role}.code" "\$COLOR_ROLES_FILE" 2>/dev/null)
+  local reset_code=\$(jq -r ".roles.reset.code" "\$COLOR_ROLES_FILE" 2>/dev/null)
+  
+  if [[ -n "\$color_code" && -n "\$reset_code" ]]; then
+    echo -e "\${color_code}\${text}\${reset_code}"
+  else
+    echo "\$text"
+  fi
+}
+EOF
+
+  # Create aliases
+  cat > "$HOME/.color_system/aliases.sh" << EOF
+#!/usr/bin/env bash
+# Color Role System Aliases
+
+alias cwarn='color_apply warning'
+alias cerror='color_apply error'
+alias csuccess='color_apply success' 
+alias cinfo='color_apply info'
+alias creset='color_apply reset'
+EOF
+
+  # Add to .bashrc
+  if ! grep -q "Color Role System" "$HOME/.bashrc"; then
+    echo "
+# Color Role System
+source \"$HOME/.color_system/color_roles_loader.sh\"
+source \"$HOME/.color_system/aliases.sh\"" >> "$HOME/.bashrc"
+  fi
+  
+  chmod +x "$HOME/.color_system/color_roles_loader.sh"
+  chmod +x "$HOME/.color_system/aliases.sh"
+fi
+
+echo "==> 3. Configuring Git & Hooks"
+# Set up Git configuration
+git config --global user.name "Patrick Craven"
+git config --global user.email "patricktssllc@gmail.com"
+git config --global core.editor "nano"
+git config --global push.default simple
+
+# Create Git hooks directory
+mkdir -p "$DOTFILES_DIR/hooks"
+
+# Create pre-commit hook
+cat > "$DOTFILES_DIR/hooks/pre-commit" << 'EOF'
+#!/usr/bin/env bash
+#
+# dotfiles/hooks/pre-commit
+
+echo "→ Running linters…"
+if command -v npm &> /dev/null; then
+  npm run lint || {
+    echo "✗ ESLint failed. Fix errors before committing."
+    exit 1
+  }
+fi
+
+if command -v black &> /dev/null; then
+  black --check . || {
+    echo "✗ Black formatting issues. Run 'black .' and recommit."
+    exit 1
+  }
+fi
+
+echo "✓ pre-commit checks passed."
+exit 0
+EOF
+
+# Create commit-msg hook
+cat > "$DOTFILES_DIR/hooks/commit-msg" << 'EOF'
+#!/usr/bin/env bash
+#
+# dotfiles/hooks/commit-msg
+
+MSG_FILE="$1"
+MSG="$(head -n1 "$MSG_FILE")"
+
+if ! grep -Eq '^(feat|fix|docs|style|refactor|test|chore)(\(.+\))?: .+' <<< "$MSG"; then
+  echo "✗ Commit message does not follow Conventional Commits format."
+  echo "  Proper form: type(scope?): subject"
+  echo "  e.g.: feat(auth): add login endpoint"
+  exit 1
+fi
+
+exit 0
+EOF
+
+chmod +x "$DOTFILES_DIR/hooks/pre-commit"
+chmod +x "$DOTFILES_DIR/hooks/commit-msg"
+
+# Configure Git to use these hooks
+git config --global core.hooksPath "$DOTFILES_DIR/hooks"
+
+echo "==> 4. Configuring PostgreSQL"
+sudo -u postgres createuser --superuser "$USER" 2>/dev/null || true
+createdb "$USER" 2>/dev/null || true
+psql -c "ALTER USER $USER WITH PASSWORD 'changeme';" 2>/dev/null || true
+
+echo "==> 5. Setting up Docker"
+sudo usermod -aG docker "$USER"
+
+echo "==> 6. Creating Project Scaffolding"
+mkdir -p "$DOTFILES_DIR/templates/express/src" "$DOTFILES_DIR/templates/express/db"
+mkdir -p "$DOTFILES_DIR/templates/flask/src" "$DOTFILES_DIR/templates/flask/db"
+
+# Create express template package.json
+cat > "$DOTFILES_DIR/templates/express/package.json" << EOF
+{
+  "name": "express-app",
+  "version": "1.0.0",
+  "description": "Express application with PostgreSQL",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "express": "^4.17.1",
+    "pg": "^8.7.1",
+    "dotenv": "^10.0.0"
+  },
+  "devDependencies": {
+    "eslint": "^8.2.0",
+    "nodemon": "^2.0.15"
+  }
+}
+EOF
+
+# Create express template index.js
+cat > "$DOTFILES_DIR/templates/express/src/index.js" << EOF
+const express = require('express');
+const { Pool } = require('pg');
+require('dotenv').config();
+
+const app = express();
+const port = process.env.PORT || 3000;
+
+// Database connection
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL
+});
+
+app.use(express.json());
+
+app.get('/', (req, res) => {
+  res.send('Express API with PostgreSQL');
+});
+
+// Sample database query
+app.get('/items', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM items');
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Server error');
+  }
+});
+
+app.listen(port, () => {
+  console.log(\`Server running on port \${port}\`);
+});
+EOF
+
+# Create express template SQL init
+cat > "$DOTFILES_DIR/templates/express/db/init.sql" << EOF
+CREATE TABLE IF NOT EXISTS items (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  description TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO items (name, description) VALUES
+  ('Item 1', 'First item description'),
+  ('Item 2', 'Second item description');
+EOF
+
+# Create flask template requirements.txt
+cat > "$DOTFILES_DIR/templates/flask/requirements.txt" << EOF
+Flask==2.0.1
+Flask-SQLAlchemy==2.5.1
+psycopg2-binary==2.9.1
+python-dotenv==0.19.1
+EOF
+
+# Create flask template app.py
+cat > "$DOTFILES_DIR/templates/flask/src/app.py" << EOF
+from flask import Flask, jsonify
+from flask_sqlalchemy import SQLAlchemy
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+app = Flask(__name__)
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db = SQLAlchemy(app)
+
+class Item(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.Text)
+
+@app.route('/')
+def index():
+    return 'Flask API with PostgreSQL'
+
+@app.route('/items')
+def get_items():
+    items = Item.query.all()
+    return jsonify([{
+        'id': item.id,
+        'name': item.name,
+        'description': item.description
+    } for item in items])
+
+if __name__ == '__main__':
+    app.run(debug=True)
+EOF
+
+# Create flask template SQL init
+cat > "$DOTFILES_DIR/templates/flask/db/init.sql" << EOF
+CREATE TABLE IF NOT EXISTS item (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  description TEXT
+);
+
+INSERT INTO item (name, description) VALUES
+  ('Item 1', 'First item description'),
+  ('Item 2', 'Second item description');
+EOF
+
+# Create scaffolding script
+cat > "$DOTFILES_DIR/scaffold.sh" << 'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ $# -ne 2 ]; then
+  echo "Usage: scaffold.sh <template> <project-name>"
+  echo "  Available templates: express, flask"
+  exit 1
+fi
+
+TEMPLATE=$1
+PROJECT=$2
+TEMPLATES_DIR="$HOME/dotfiles/templates/$TEMPLATE"
+
+if [ ! -d "$TEMPLATES_DIR" ]; then
+  echo "Error: template '$TEMPLATE' not found in $TEMPLATES_DIR"
+  exit 1
+fi
+
+echo "==> Creating new project '$PROJECT' from '$TEMPLATE' template"
+mkdir -p "$PROJECT"
+cp -R "$TEMPLATES_DIR/." "$PROJECT/"
+cd "$PROJECT"
+
+echo "-> Initializing git repo"
+git init
+git add .
+git commit -m "chore: scaffold $TEMPLATE project"
+
+echo "✅ Project '$PROJECT' scaffolded. Next steps:"
+echo "   1) cd $PROJECT"
+echo "   2) Review /src, /db/init.sql"
+echo "   3) Install deps: 'npm install' or 'pip install -r requirements.txt'"
+EOF
+
+chmod +x "$DOTFILES_DIR/scaffold.sh"
+
+echo "==> 7. Setting up Knowledge Base structure"
+mkdir -p "$HOME/knowledge_base"/{raw,docs,metadata,database,scripts,tools}
+
+echo "==> 8. Installing self-update watchdog"
+# Create watchdog script
+mkdir -p "$HOME/.assistant/logs"
+cat > "$HOME/.assistant/watchdog.sh" << 'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+LOG_FILE="$HOME/.assistant/logs/watchdog.log"
+mkdir -p "$(dirname "$LOG_FILE")"
+touch "$LOG_FILE"
+
+log() {
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG_FILE"
+}
+
+log "Running watchdog check"
+
+# Check Color System
+if [ ! -d "$HOME/.color_system" ]; then
+  log "Color system missing, reinstalling"
+  # Reinstall logic would go here
+fi
+
+# Check for dotfiles updates if it's a git repo
+if [ -d "$HOME/dotfiles/.git" ]; then
+  cd "$HOME/dotfiles"
+  git fetch origin
+  LOCAL=$(git rev-parse @)
+  REMOTE=$(git rev-parse @{u})
+  
+  if [ "$LOCAL" != "$REMOTE" ]; then
+    log "Dotfiles update available"
+    git pull
+    $HOME/dotfiles/bootstrap.sh
+  fi
+fi
+
+log "Watchdog check complete"
+EOF
+
+chmod +x "$HOME/.assistant/watchdog.sh"
+
+# Add cron job
+(crontab -l 2>/dev/null; echo "0 3 * * * $HOME/.assistant/watchdog.sh") | crontab -
+
+echo "==> 9. Setting up terminal colors"
+# Create dir_colors file
+cat > "$DOTFILES_DIR/misc/.dir_colors" << EOF
+# Directories
+DIR 01;34
+LINK 01;36
+EXEC 01;32
+FIFO 40;33
+SOCK 01;35
+DOOR 01;35
+BLK 40;33;01
+CHR 40;33;01
+
+# Archive/compressed
+*.tar 01;31
+*.tgz 01;31
+*.zip 01;31
+*.gz 01;31
+*.bz2 01;31
+
+# Images
+*.jpg 01;35
+*.jpeg 01;35
+*.gif 01;35
+*.png 01;35
+EOF
+
+ln -sf "$DOTFILES_DIR/misc/.dir_colors" "$HOME/.dir_colors"
+echo 'eval "$(dircolors ~/.dir_colors)"' >> "$HOME/.bashrc"
+
+echo "==> 10. Creating Bash aliases"
+cat > "$DOTFILES_DIR/bash/.bash_aliases" << EOF
+# System
+alias update='sudo apt update && sudo apt upgrade -y'
+alias instl='sudo apt install -y'
+alias please='sudo'
+alias cls='clear'
+alias reload='source ~/.bashrc'
+
+# Navigation
+alias ll='ls -alF --color=auto'
+alias la='ls -A --color=auto'
+alias l='ls -CF --color=auto'
+alias ..='cd ..'
+alias mkcd='mkdir -p "\$1" && cd "\$1"'
+
+# Git
+alias gs='git status'
+alias ga='git add .'
+alias gc='git commit -m'
+alias gp='git push'
+alias gpl='git pull'
+
+# Docker
+alias dps='docker ps'
+alias dpa='docker ps -a'
+alias di='docker images'
+alias drm='docker rm \$(docker ps -aq)'
+alias drmi='docker rmi \$(docker images -q)'
+
+# Terraform
+alias tf='terraform'
+alias tfi='terraform init'
+alias tfp='terraform plan'
+alias tfa='terraform apply'
+EOF
+
+ln -sf "$DOTFILES_DIR/bash/.bash_aliases" "$HOME/.bash_aliases"
+
+echo "==> 11. Setting up infrastructure directories"
+mkdir -p "$HOME/architecture/infrastructure"/{modules,projects}
+
+echo "==> DONE! Environment setup complete."
+echo "Log out and log back in, or run 'source ~/.bashrc' to apply all changes."
+3. Color System Implementation
+Your Color Role System provides standardized terminal output with defined roles (warning, error, success, info). It's already implemented in the bootstrap script, but here's a standalone implementation for reference:
+
+bash
+#!/usr/bin/env bash
+# install_hook.sh — Install Color Role System
+
+set -euo pipefail
+
+INSTALL_DIR="${HOME}/.color_system"
+BASHRC="${HOME}/.bashrc"
+CLEAN_SELF=false
+
+# Parse options
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --clean) CLEAN_SELF=true ;;
+    *) echo "Unknown option: $1" >&2; exit 1 ;;
+  esac
+  shift
+done
+
+# Ensure jq is installed
+if ! command -v jq &>/dev/null; then
+  echo "🔧 Installing jq…"
+  if   command -v apt-get &>/dev/null; then sudo apt-get update && sudo apt-get install -y jq
+  elif command -v yum     &>/dev/null; then sudo yum install -y jq
+  elif command -v brew    &>/dev/null; then brew install jq
+  else
+    echo "⚠️  Unable to install jq automatically; please install it manually." >&2
+    exit 1
+  fi
+fi
+
+# 1. Copy files into place
+mkdir -p "${INSTALL_DIR}"
+
+# Create color_roles.json if it doesn't exist
+cat > "${INSTALL_DIR}/color_roles.json" << 'EOF'
+{
+  "roles": {
+    "warning": {"color": "yellow", "code": "\033[1;33m"},
+    "error": {"color": "red", "code": "\033[1;31m"},
+    "success": {"color": "green", "code": "\033[1;32m"},
+    "info": {"color": "blue", "code": "\033[1;34m"},
+    "reset": {"color": "default", "code": "\033[0m"}
+  }
+}
+EOF
+
+# Create loader.sh
+cat > "${INSTALL_DIR}/color_roles_loader.sh" << 'EOF'
+#!/usr/bin/env bash
+# Version: v1.0.0
+# Color Role System Loader
+
+export COLOR_ROLES_FILE="$HOME/.color_system/color_roles.json"
+
+color_apply() {
+  local role="$1"
+  local text="${2:-}"
+  
+  # If no text provided, just output the color code
+  if [[ -z "$text" ]]; then
+    jq -r ".roles.${role}.code" "$COLOR_ROLES_FILE" 2>/dev/null || echo ""
+    return
+  fi
+  
+  # Get color code, apply to text, and reset
+  local color_code=$(jq -r ".roles.${role}.code" "$COLOR_ROLES_FILE" 2>/dev/null)
+  local reset_code=$(jq -r ".roles.reset.code" "$COLOR_ROLES_FILE" 2>/dev/null)
+  
+  if [[ -n "$color_code" && -n "$reset_code" ]]; then
+    echo -e "${color_code}${text}${reset_code}"
+  else
+    echo "$text"
+  fi
+}
+EOF
+
+# Create aliases.sh
+cat > "${INSTALL_DIR}/aliases.sh" << 'EOF'
+#!/usr/bin/env bash
+# Color Role System Aliases
+
+alias cwarn='color_apply warning'
+alias cerror='color_apply error'
+alias csuccess='color_apply success' 
+alias cinfo='color_apply info'
+alias creset='color_apply reset'
+EOF
+
+# 2. Hook into shell startup
+grep -Fq "source \"${INSTALL_DIR}/color_roles_loader.sh\"" "${BASHRC}" \
+  || {
+       printf "\n# Color Role System\nsource \"%s/color_roles_loader.sh\"\nsource \"%s/aliases.sh\"\n" \
+              "${INSTALL_DIR}" "${INSTALL_DIR}" \
+       >> "${BASHRC}"
+     }
+
+# 3. Set permissions
+chmod +x "${INSTALL_DIR}/color_roles_loader.sh"
+chmod +x "${INSTALL_DIR}/aliases.sh"
+
+# 4. Validate installation
+if [[ ! -f "${INSTALL_DIR}/color_roles.json" ]]; then
+  echo "❌ Installation failed: color_roles.json missing." >&2
+  exit 1
+fi
+echo "✅ Color Role System installed successfully."
+
+# 5. Self-erase if requested
+if [[ "${CLEAN_SELF}" = true ]]; then
+  rm -- "$0"
+fi
+4. Project Scaffolding
+The scaffold.sh script provides templates for new projects. Here's how to use it:
+
+bash
+# Create a new Express.js project
+~/dotfiles/scaffold.sh express my-new-api
+
+# Create a new Flask project
+~/dotfiles/scaffold.sh flask my-python-api
+You can extend this system by adding more templates to the templates/ directory.
+
+5. GitHub Integration
+Add a GitHub integration script to ~/dotfiles/tools/:
+
+bash
+#!/usr/bin/env bash
+# ~/dotfiles/tools/gh_setup.sh
+set -euo pipefail
+
+# Default repository owner
+OWNER="peteywee"
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --repo)
+      REPO="$2"
+      shift 2
+      ;;
+    --public)
+      PUBLIC=true
+      shift
+      ;;
+    --description)
+      DESCRIPTION="$2"
+      shift 2
+      ;;
+    *)
+      echo "Unknown option: $1"
+      exit 1
+      ;;
+  esac
+done
+
+# Check if GitHub CLI is installed
+if ! command -v gh &>/dev/null; then
+  echo "Installing GitHub CLI..."
+  sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-key C99B11DEB97541F0
+  sudo apt-add-repository https://cli.github.com/packages
+  sudo apt update
+  sudo apt install gh
+fi
+
+# Check if authenticated
+if ! gh auth status &>/dev/null; then
+  echo "Please authenticate with GitHub:"
+  gh auth login
+fi
+
+# Create repository
+if [[ -n "${REPO:-}" ]]; then
+  VISIBILITY=${PUBLIC:+--public}
+  VISIBILITY=${VISIBILITY:---private}
+  DESC=${DESCRIPTION:+--description "${DESCRIPTION}"}
+  
+  echo "Creating repository ${OWNER}/${REPO}..."
+  gh repo create "${OWNER}/${REPO}" ${VISIBILITY} ${DESC} --confirm
+  
+  # Clone the repository if it doesn't exist locally
+  if [[ ! -d "${REPO}" ]]; then
+    git clone "https://github.com/${OWNER}/${REPO}.git"
+  fi
+  
+  echo "Repository created: https://github.com/${OWNER}/${REPO}"
+else
+  echo "Usage: gh_setup.sh --repo REPO_NAME [--public] [--description \"Repo description\"]"
+  exit 1
+fi
+Make it executable:
+
+bash
+chmod +x ~/dotfiles/tools/gh_setup.sh
+6. Knowledge Base System
+Add this script to manage your knowledge base:
+
+bash
+#!/usr/bin/env bash
+# ~/knowledge_base/scripts/kb_manager.sh
+set -euo pipefail
+
+KB_DIR="$HOME/knowledge_base"
+KB_DB="$KB_DIR/database/kb.sqlite"
+
+# Ensure directory structure exists
+mkdir -p "$KB_DIR"/{raw,docs,metadata,database,scripts,tools}
+
+# Create SQLite database if it doesn't exist
+if [[ ! -f "$KB_DB" ]]; then
+  echo "Creating knowledge base database..."
+  sqlite3 "$KB_DB" <<EOF
+CREATE TABLE projects (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT,
+  is_private INTEGER DEFAULT 1,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE documents (
+  id INTEGER PRIMARY KEY,
+  project_id INTEGER,
+  filename TEXT NOT NULL,
+  content TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (project_id) REFERENCES projects (id)
+);
+
+CREATE TABLE tags (
+  id INTEGER PRIMARY KEY,
+  name TEXT UNIQUE NOT NULL
+);
+
+CREATE TABLE document_tags (
+  document_id INTEGER,
+  tag_id INTEGER,
+  PRIMARY KEY (document_id, tag_id),
+  FOREIGN KEY (document_id) REFERENCES documents (id),
+  FOREIGN KEY (tag_id) REFERENCES tags (id)
+);
+EOF
+fi
+
+# Function to add a project
+add_project() {
+  local name="$1"
+  local description="${2:-}"
+  local is_private="${3:-1}"
+  
+  sqlite3 "$KB_DB" <<EOF
+INSERT INTO projects (name, description, is_private)
+VALUES ('$name', '$description', $is_private);
+EOF
+  
+  echo "Project '$name' added to knowledge base."
+}
+
+# Function to add a document
+add_document() {
+  local project_name="$1"
+  local filename="$2"
+  local content_file="$3"
+  
+  # Get project ID
+  local project_id=$(sqlite3 "$KB_DB" "SELECT id FROM projects WHERE name = '$project_name';")
+  
+  if [[ -z "$project_id" ]]; then
+    echo "Project '$project_name' not found. Creating it..."
+    add_project "$project_name"
+    project_id=$(sqlite3 "$KB_DB" "SELECT id FROM projects WHERE name = '$project_name';")
+  fi
+  
+  # Read content file
+  if [[ -f "$content_file" ]]; then
+    # Escape single quotes for SQL
+    local content=$(cat "$content_file" | sed "s/'/''/g")
+    
+    sqlite3 "$KB_DB" <<EOF
+INSERT INTO documents (project_id, filename, content)
+VALUES ($project_id, '$filename', '$content');
+EOF
+    
+    echo "Document '$filename' added to project '$project_name'."
+  else
+    echo "Content file '$content_file' not found."
+    exit 1
+  fi
+}
+
+# Function to add a tag to a document
+add_tag() {
+  local project_name="$1"
+  local filename="$2"
+  local tag_name="$3"
+  
+  # Get document ID
+  local document_id=$(sqlite3 "$KB_DB" <<EOF
+SELECT d.id FROM documents d
+JOIN projects p ON d.project_id = p.id
+WHERE p.name = '$project_name' AND d.filename = '$filename';
+EOF
+)
+  
+  if [[ -z "$document_id" ]]; then
+    echo "Document '$filename' in project '$project_name' not found."
+    exit 1
+  fi
+  
+  # Get tag ID or create it
+  local tag_id=$(sqlite3 "$KB_DB" "SELECT id FROM tags WHERE name = '$tag_name';")
+  
+  if [[ -z "$tag_id" ]]; then
+    sqlite3 "$KB_DB" "INSERT INTO tags (name) VALUES ('$tag_name');"
+    tag_id=$(sqlite3 "$KB_DB" "SELECT id FROM tags WHERE name = '$tag_name';")
+  fi
+  
+  # Add tag to document
+  sqlite3 "$KB_DB" <<EOF
+INSERT OR IGNORE INTO document_tags (document_id, tag_id)
+VALUES ($document_id, $tag_id);
+EOF
+  
+  echo "Tag '$tag_name' added to document '$filename'."
+}
+
+# Function to search knowledge base
+search_kb() {
+  local query="$1"
+  local tag="${2:-}"
+  
+  local tag_clause=""
+  if [[ -n "$tag" ]]; then
+    tag_clause="AND t.name = '$tag'"
+  fi
+  
+  sqlite3 "$KB_DB" <<EOF
+.mode column
+.headers on
+SELECT 
+  p.name AS Project,
+  d.filename AS Filename,
+  substr(d.content, 1, 50) || '...' AS Preview
+FROM documents d
+JOIN projects p ON d.project_id = p.id
+LEFT JOIN document_tags dt ON d.id = dt.document_id
+LEFT JOIN tags t ON dt.tag_id = t.id
+WHERE d.content LIKE '%$query%'
+$tag_clause
+ORDER BY p.name, d.filename;
+EOF
+}
+
+# Parse command
+case "${1:-}" in
+  add-project)
+    add_project "$2" "${3:-}" "${4:-1}"
+    ;;
+  add-document)
+    add_document "$2" "$3" "$4"
+    ;;
+  add-tag)
+    add_tag "$2" "$3" "$4"
+    ;;
+  search)
+    search_kb "$2" "${3:-}"
+    ;;
+  *)
+    echo "Usage:"
+    echo "  kb_manager.sh add-project NAME [DESCRIPTION] [IS_PRIVATE]"
+    echo "  kb_manager.sh add-document PROJECT FILENAME CONTENT_FILE"
+    echo "  kb_manager.sh add-tag PROJECT FILENAME TAG"
+    echo "  kb_manager.sh search QUERY [TAG]"
+    exit 1
+    ;;
+esac
+Make it executable:
+
+bash
+chmod +x ~/knowledge_base/scripts/kb_manager.sh
+7. Docker Integration
+Create a Docker setup script:
+
+bash
+#!/usr/bin/env bash
+# ~/dotfiles/tools/docker_setup.sh
+set -euo pipefail
+
+# Ensure Docker is installed
+if ! command -v docker &>/dev/null; then
+  echo "Installing Docker..."
+  sudo apt update
+  sudo apt install -y docker.io
+  sudo usermod -aG docker $USER
+  echo "Docker installed. Log out and back in to use Docker without sudo."
+fi
+
+# Create a Dockerfile for your color system environment
+cat > Dockerfile << EOF
+FROM debian:bookworm
+
+RUN apt-get update && apt-get install -y \\
+    curl wget git jq \\
+    python3 python3-pip \\
+    nodejs npm \\
+    nano \\
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy color system files
+COPY .color_system /root/.color_system
+
+# Set up bash configuration to load color system
+RUN echo '# Color Role System' >> /root/.bashrc \\
+    && echo 'source /root/.color_system/color_roles_loader.sh' >> /root/.bashrc \\
+    && echo 'source /root/.color_system/aliases.sh' >> /root/.bashrc
+
+# Default command
+CMD ["/bin/bash"]
+EOF
+
+# Create .dockerignore
+cat > .dockerignore << EOF
+.git
+node_modules
+__pycache__
+*.pyc
+EOF
+
+# Create docker-compose.yml
+cat > docker-compose.yml << EOF
+version: '3.8'
+
+services:
+  app:
+    build: .
+    volumes:
+      - ./app:/app
+    ports:
+      - "3000:3000"
+      - "5000:5000"
+    environment:
+      - NODE_ENV=development
+EOF
+
+echo "Docker setup complete. You can build the image with:"
+echo "  docker build -t color-system ."
+echo "Or run with docker-compose:"
+echo "  docker-compose up -d"
+Make it executable:
+
+bash
+chmod +x ~/dotfiles/tools/docker_setup.sh
+8. Maintenance & Updates
+Create a watchdog service that monitors and maintains your environment:
+
+bash
+#!/usr/bin/env bash
+# ~/.assistant/watchdog/monitor.sh
+set -euo pipefail
+
+LOG_DIR="$HOME/.assistant/logs"
+mkdir -p "$LOG_DIR"
+LOG_FILE="$LOG_DIR/monitor.log"
+
+log() {
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"
+}
+
+check_system() {
+  log "Checking system health..."
+  
+  # Check disk space
+  df_output=$(df -h / | tail -n 1)
+  used_percent=$(echo "$df_output" | awk '{print $5}' | tr -d '%')
+  
+  if (( used_percent > 90 )); then
+    log "WARNING: Disk space critical ($used_percent% used)"
+  fi
+  
+  # Check memory
+  free_output=$(free -m | grep Mem)
+  total_mem=$(echo "$free_output" | awk '{print $2}')
+  used_mem=$(echo "$free_output" | awk '{print $3}')
+  used_percent=$((used_mem * 100 / total_mem))
+  
+  if (( used_percent > 90 )); then
+    log "WARNING: Memory usage high ($used_percent%)"
+  fi
+  
+  # Check color system
+  if [[ ! -d "$HOME/.color_system" ]]; then
+    log "ERROR: Color system not found, attempting repair"
+    "$HOME/dotfiles/bootstrap.sh"
+  fi
+  
+  # Check knowledge base
+  if [[ ! -f "$HOME/knowledge_base/database/kb.sqlite" ]]; then
+    log "ERROR: Knowledge base database not found, attempting repair"
+    "$HOME/knowledge_base/scripts/kb_manager.sh" add-project "default" "Default project"
+  fi
+}
+
+backup_config() {
+  log "Creating configuration backup..."
+  
+  backup_dir="$HOME/backups/$(date '+%Y%m%d')"
+  mkdir -p "$backup_dir"
+  
+  # Backup dotfiles
+  if [[ -d "$HOME/dotfiles" ]]; then
+    tar -czf "$backup_dir/dotfiles.tar.gz" -C "$HOME" dotfiles
+  fi
+  
+  # Backup color system
+  if [[ -d "$HOME/.color_system" ]]; then
+    tar -czf "$backup_dir/color_system.tar.gz" -C "$HOME" .color_system
+  fi
+  
+  # Backup knowledge base
+  if [[ -d "$HOME/knowledge_base" ]]; then
+    sqlite3 "$HOME/knowledge_base/database/kb.sqlite" .dump > "$backup_dir/kb_dump.sql"
+  fi
+  
+  log "Backup created at $backup_dir"
+}
+
+update_system() {
+  log "Checking for updates..."
+  
+  # Update dotfiles
+  if [[ -d "$HOME/dotfiles/.git" ]]; then
+    cd "$HOME/dotfiles"
+    git fetch origin
+    LOCAL=$(git rev-parse @)
+    REMOTE=$(git rev-parse @{u})
+    
+    if [[ "$LOCAL" != "$REMOTE" ]]; then
+      log "Updates available for dotfiles, pulling changes"
+      git pull
+      "$HOME/dotfiles/bootstrap.sh"
+    fi
+  fi
+  
+  # Check for system updates
+  sudo apt update
+  updates=$(apt list --upgradable 2>/dev/null | grep -c upgradable)
+  
+  if (( updates > 0 )); then
+    log "$updates package updates available"
+  fi
+}
+
+case "${1:-check}" in
+  check)
+    check_system
+    ;;
+  backup)
+    backup_config
+    ;;
+  update)
+    update_system
+    ;;
+  full)
+    check_system
+    backup_config
+    update_system
+    ;;
+  *)
+    echo "Usage: monitor.sh [check|backup|update|full]"
+    exit 1
+    ;;
+esac
+
+log "Monitor completed successfully"
+Make it executable and add to cron:
+
+bash
+chmod +x ~/.assistant/watchdog/monitor.sh
+(crontab -l 2>/dev/null; echo "0 2 * * * $HOME/.assistant/watchdog/monitor.sh full") | crontab -
+Usage Examples
+Bootstrap a fresh system:
+bash
+git clone https://github.com/yourusername/dotfiles.git ~/dotfiles
+cd ~/dotfiles
+./bootstrap.sh
+Create a new project:
+bash
+~/dotfiles/scaffold.sh express my-new-api
+cd my-new-api
+npm install
+Use the color system in scripts:
+bash
+#!/usr/bin/env bash
+source "$HOME/.color_system/color_roles_loader.sh"
+source "$HOME/.color_system/aliases.sh"
+
+echo "$(cwarn 'Warning:') This operation is dangerous."
+echo "$(cerror 'Error:') Something went wrong."
+echo "$(csuccess 'Success:') Operation completed."
+Manage knowledge base:
+bash
+# Add a project
+~/knowledge_base/scripts/kb_manager.sh add-project "linux-setup" "Linux setup documentation"
+
+# Add a document
+~/knowledge_base/scripts/kb_manager.sh add-document "linux-setup" "bootstrap.md" "/path/to/bootstrap.md"
+
+# Add tags
+~/knowledge_base/scripts/kb_manager.sh add-tag "linux-setup" "bootstrap.md" "setup"
+
+# Search for documents
+~/knowledge_base/scripts/kb_manager.sh search "color system" "setup"
+Run the monitoring system:
+bash
+~/.assistant/watchdog/monitor.sh full
+This integrated system provides a comprehensive framework for managing your Linux environment, projects, and knowledge base. The modular approach allows for easy maintenance and extension as your needs evolve.
+
+
+
+
+Retry
+I don't see docker or docker files I don't see terraform process
+
+Edit
+
+Strategized adding Docker and Terraform documentation details.
+2s
+
+
+
+Docker & Terraform Integration
+You're right - I missed providing detailed Docker and Terraform implementations. Let me add those crucial components:
+
+1. Docker Implementation
+Create a comprehensive Docker setup in your dotfiles:
+
+bash
+#!/usr/bin/env bash
+# ~/dotfiles/docker/setup.sh
+set -euo pipefail
+
+mkdir -p ~/dotfiles/docker/{templates,compose}
+
+# Docker base image with your environment
+cat > ~/dotfiles/docker/templates/Dockerfile.base << 'EOF'
+FROM debian:bookworm-slim
+
+# Install core dependencies
+RUN apt-get update && apt-get install -y \
+    curl wget git jq \
+    python3 python3-pip \
+    nodejs npm \
+    nano build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set up color system
+COPY .color_system /root/.color_system
+RUN echo '# Color Role System' >> /root/.bashrc \
+    && echo 'source /root/.color_system/color_roles_loader.sh' >> /root/.bashrc \
+    && echo 'source /root/.color_system/aliases.sh' >> /root/.bashrc
+
+WORKDIR /app
+CMD ["/bin/bash"]
+EOF
+
+# Development environment 
+cat > ~/dotfiles/docker/templates/Dockerfile.dev << 'EOF'
+ARG BASE_IMAGE=base-env:latest
+FROM ${BASE_IMAGE}
+
+# Development tools
+RUN apt-get update && apt-get install -y \
+    postgresql-client \
+    && npm install -g nodemon \
+    && pip install --no-cache-dir pytest black flake8 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN useradd -m -s /bin/bash dev && \
+    mkdir -p /app && \
+    chown -R dev:dev /app
+
+USER dev
+WORKDIR /app
+
+# Copy configuration files
+COPY --chown=dev:dev .bashrc .gitconfig /home/dev/
+
+CMD ["bash"]
+EOF
+
+# Create the build script
+cat > ~/dotfiles/docker/build-images.sh << 'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Set working directory
+cd "$(dirname "$0")"
+
+echo "Building Docker images..."
+
+# Build base image
+docker build -t base-env:latest -f templates/Dockerfile.base ..
+
+# Build development image
+docker build -t dev-env:latest \
+  --build-arg BASE_IMAGE=base-env:latest \
+  -f templates/Dockerfile.dev ..
+
+echo "Docker images built successfully"
+EOF
+chmod +x ~/dotfiles/docker/build-images.sh
+
+# Create Docker Compose templates
+cat > ~/dotfiles/docker/compose/node-postgres.yml << 'EOF'
+version: '3.8'
+
+services:
+  app:
+    image: dev-env:latest
+    volumes:
+      - ./:/app
+      - node_modules:/app/node_modules
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgres://postgres:postgres@db:5432/dev
+    depends_on:
+      - db
+  
+  db:
+    image: postgres:14
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=dev
+    ports:
+      - "5432:5432"
+
+volumes:
+  node_modules:
+  postgres_data:
+EOF
+
+cat > ~/dotfiles/docker/compose/flask-postgres.yml << 'EOF'
+version: '3.8'
+
+services:
+  app:
+    image: dev-env:latest
+    volumes:
+      - ./:/app
+      - python_modules:/app/.venv
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=development
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/dev
+    depends_on:
+      - db
+  
+  db:
+    image: postgres:14
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=dev
+    ports:
+      - "5432:5432"
+
+volumes:
+  python_modules:
+  postgres_data:
+EOF
+
+# Docker project launch script
+cat > ~/dotfiles/docker/run-project.sh << 'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Default values
+PROJECT_TYPE="node"
+PROJECT_PATH="$(pwd)"
+COMPOSE_FILE=""
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --type)
+      PROJECT_TYPE="$2"
+      shift 2
+      ;;
+    --path)
+      PROJECT_PATH="$2"
+      shift 2
+      ;;
+    *)
+      echo "Unknown option: $1"
+      exit 1
+      ;;
+  esac
+done
+
+# Set compose file based on project type
+case "$PROJECT_TYPE" in
+  node)
+    COMPOSE_FILE="$HOME/dotfiles/docker/compose/node-postgres.yml"
+    ;;
+  flask)
+    COMPOSE_FILE="$HOME/dotfiles/docker/compose/flask-postgres.yml"
+    ;;
+  *)
+    echo "Unsupported project type: $PROJECT_TYPE"
+    echo "Supported types: node, flask"
+    exit 1
+    ;;
+esac
+
+# Run docker-compose
+cd "$PROJECT_PATH"
+docker-compose -f "$COMPOSE_FILE" up -d
+
+echo "Project running with Docker Compose"
+echo "App service: http://localhost:3000 or http://localhost:5000"
+echo "Database: localhost:5432 (postgres:postgres)"
+EOF
+chmod +x ~/dotfiles/docker/run-project.sh
+
+# Create Docker aliases
+cat > ~/dotfiles/docker/.docker_aliases << 'EOF'
+# Docker shortcuts
+alias dbuild='~/dotfiles/docker/build-images.sh'
+alias drun='~/dotfiles/docker/run-project.sh'
+alias dps='docker ps'
+alias dpa='docker ps -a'
+alias di='docker images'
+alias dex='docker exec -it'
+alias dlog='docker logs'
+alias dstop='docker stop $(docker ps -q)'
+alias dclean='docker system prune -f'
+EOF
+
+# Add Docker aliases to bootstrap
+echo "source ~/dotfiles/docker/.docker_aliases" >> ~/dotfiles/bash/.bash_aliases
+2. Terraform Implementation
+Set up a comprehensive Terraform structure:
+
+bash
+#!/usr/bin/env bash
+# ~/dotfiles/terraform/setup.sh
+set -euo pipefail
+
+mkdir -p ~/architecture/infrastructure/{modules,projects,manifests}
+
+# Create basic Terraform module structure
+mkdir -p ~/architecture/infrastructure/modules/color_system_installer
+
+# Create main.tf for the color_system_installer module
+cat > ~/architecture/infrastructure/modules/color_system_installer/main.tf << 'EOF'
+terraform {
+  required_providers {
+    null  = { source = "hashicorp/null",  version = "~> 3.2" }
+    local = { source = "hashicorp/local", version = "~> 2.4" }
+  }
+}
+
+locals {
+  # Build the release asset URL once; triggers Terraform replacement if version changes
+  asset_url = (
+    var.custom_asset_url != "" ?
+    var.custom_asset_url :
+    "https://github.com/${var.github_repo}/releases/download/${var.tag}/color-system-${var.tag}.tar.gz"
+  )
+
+  # Directory that will contain the extracted tarball folder
+  extract_parent = "${var.install_dir}/_src"
+}
+
+resource "null_resource" "install_color_system" {
+  triggers = {
+    asset_url   = local.asset_url
+    install_dir = var.install_dir
+  }
+
+  provisioner "local-exec" {
+    interpreter = ["/usr/bin/env", "bash", "-c"]
+    command     = <<-EOT
+      set -euo pipefail
+
+      echo "🔽  Fetching Color Role System from ${local.asset_url}"
+      mkdir -p "${local.extract_parent}"
+      curl -sSL "${local.asset_url}" | tar xz -C "${local.extract_parent}"
+
+      # The tarball extracts as color-system-${var.tag}/
+      cd "${local.extract_parent}"/color-system-*
+
+      # Optional jq bootstrap (Debian/Ubuntu only).
+      if [[ "${var.ensure_jq}" == "true" ]] && ! command -v jq >/dev/null; then
+        echo "🔧  Installing jq ..."
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq jq
+      fi
+
+      echo "⚙️   Running install_hook.sh ..."
+      chmod +x install_hook.sh
+      ./install_hook.sh --clean
+
+      echo "✅  Color Role System ${var.tag} installed."
+    EOT
+  }
+}
+
+output "color_system_install_dir" {
+  description = "Final installation directory."
+  value       = var.install_dir
+}
+EOF
+
+# Create variables.tf for the module
+cat > ~/architecture/infrastructure/modules/color_system_installer/variables.tf << 'EOF'
+variable "github_repo" {
+  type        = string
+  description = "GitHub owner/repo where releases live."
+  default     = "peteywee/color-system"
+}
+
+variable "tag" {
+  type        = string
+  description = "Release tag (e.g. v1.0.0). Use 'latest' to pull the newest tag via API."
+  default     = "v1.0.0"
+}
+
+variable "install_dir" {
+  type        = string
+  description = "Where the running Color Role System files live."
+  default     = "~/.color_system"
+}
+
+variable "ensure_jq" {
+  type        = bool
+  description = "Install jq automatically on apt-based systems if absent."
+  default     = true
+}
+
+variable "custom_asset_url" {
+  type        = string
+  description = "Override download URL completely (rarely needed)."
+  default     = ""
+}
+EOF
+
+# Create a root module example 
+mkdir -p ~/architecture/infrastructure/projects/color-system-bootstrap
+
+cat > ~/architecture/infrastructure/projects/color-system-bootstrap/main.tf << 'EOF'
+module "color_system" {
+  source      = "../../modules/color_system_installer"
+  github_repo = "peteywee/color-system"
+  tag         = "v1.0.0"
+  install_dir = pathexpand("~/.color_system")
+}
+
+output "install_dir" {
+  value = module.color_system.color_system_install_dir
+}
+EOF
+
+# Create versions.tf to pin Terraform and providers
+cat > ~/architecture/infrastructure/projects/color-system-bootstrap/versions.tf << 'EOF'
+terraform {
+  required_version = ">= 1.6, < 2.0"
+  
+  required_providers {
+    local = { source = "hashicorp/local", version = "~> 2.4" }
+    null  = { source = "hashicorp/null",  version = "~> 3.2" }
+  }
+}
+EOF
+
+# Create terragrunt.hcl for DRY configuration
+cat > ~/architecture/infrastructure/terragrunt.hcl << 'EOF'
+remote_state {
+  backend = "local"
+  config = {
+    path = "${get_path_to_repo_root()}/.state/${path_relative_to_include()}.tfstate"
+  }
+}
+
+generate "provider" {
+  path      = "provider.tf"
+  if_exists = "overwrite"
+  contents  = <<EOF
+    terraform {
+      required_providers {
+        local = { source = "hashicorp/local", version = "~> 2.4" }
+        null  = { source = "hashicorp/null",  version = "~> 3.2" }
+      }
+    }
+EOF
+}
+EOF
+
+# Create a project terragrunt.hcl
+cat > ~/architecture/infrastructure/projects/color-system-bootstrap/terragrunt.hcl << 'EOF'
+include {
+  path = find_in_parent_folders()
+}
+
+terraform {
+  source = "./"
+}
+EOF
+
+# Create the Terraform wrapper script
+cat > ~/dotfiles/terraform/terraform-wrapper.sh << 'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Install Terraform if not present
+if ! command -v terraform &>/dev/null; then
+  echo "Installing Terraform..."
+  
+  # Add HashiCorp GPG key
+  wget -O- https://apt.releases.hashicorp.com/gpg | \
+    gpg --dearmor | \
+    sudo tee /usr/share/keyrings/hashicorp-archive-keyring.gpg >/dev/null
+  
+  # Add HashiCorp repository
+  echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] \
+    https://apt.releases.hashicorp.com $(lsb_release -cs) main" | \
+    sudo tee /etc/apt/sources.list.d/hashicorp.list
+  
+  # Install Terraform
+  sudo apt-get update && sudo apt-get install -y terraform
+fi
+
+# Install Terragrunt if not present
+if ! command -v terragrunt &>/dev/null; then
+  echo "Installing Terragrunt..."
+  TERRAGRUNT_VERSION=$(curl -s https://api.github.com/repos/gruntwork-io/terragrunt/releases/latest | grep tag_name | cut -d '"' -f 4)
+  
+  # Download and install Terragrunt
+  curl -Lo terragrunt "https://github.com/gruntwork-io/terragrunt/releases/download/${TERRAGRUNT_VERSION}/terragrunt_linux_amd64"
+  chmod +x terragrunt
+  sudo mv terragrunt /usr/local/bin/
+fi
+
+# Create Terraform aliases
+cat > ~/dotfiles/terraform/.terraform_aliases << 'EOF2'
+# Terraform shortcuts
+alias tf='terraform'
+alias tfi='terraform init'
+alias tfp='terraform plan'
+alias tfa='terraform apply'
+alias tfaauto='terraform apply -auto-approve'
+alias tfd='terraform destroy'
+alias tfdauto='terraform destroy -auto-approve'
+alias tfo='terraform output'
+alias tfv='terraform validate'
+alias tfs='terraform show'
+
+# Terragrunt shortcuts
+alias tg='terragrunt'
+alias tgri='terragrunt run-all init'
+alias tgrp='terragrunt run-all plan'
+alias tgra='terragrunt run-all apply'
+EOF2
+
+# Add Terraform aliases to bash aliases
+echo "source ~/dotfiles/terraform/.terraform_aliases" >> ~/dotfiles/bash/.bash_aliases
+
+echo "Terraform setup complete"
+EOF
+chmod +x ~/dotfiles/terraform/terraform-wrapper.sh
+
+# Add to bootstrap.sh
+echo "# Initialize Terraform tooling"
+echo "./terraform/terraform-wrapper.sh" >> ~/dotfiles/bootstrap.sh
+3. Using Docker and Terraform
+Docker Usage
+Build Docker images and run a containerized project:
+
+bash
+# Build Docker images
+~/dotfiles/docker/build-images.sh
+
+# Run a Node.js project with Postgres
+cd ~/projects/my-node-app
+~/dotfiles/docker/run-project.sh --type node --path .
+
+# Run a Flask project with Postgres
+cd ~/projects/my-flask-app
+~/dotfiles/docker/run-project.sh --type flask --path .
+
+# Execute commands in a running container
+docker exec -it my-node-app_app_1 bash
+
+# View logs
+docker logs -f my-node-app_app_1
+Terraform Usage
+Use Terraform to manage infrastructure:
+
+bash
+# Initialize and apply a Terraform configuration
+cd ~/architecture/infrastructure/projects/color-system-bootstrap
+terraform init
+terraform apply
+
+# Or use Terragrunt for multiple configurations
+cd ~/architecture/infrastructure
+terragrunt run-all init
+terragrunt run-all plan
+terragrunt run-all apply
+
+# Create a new project from scratch
+mkdir -p ~/architecture/infrastructure/projects/new-project
+cp ~/architecture/infrastructure/projects/color-system-bootstrap/terragrunt.hcl ~/architecture/infrastructure/projects/new-project/
+
+# Create main.tf for the new project
+cat > ~/architecture/infrastructure/projects/new-project/main.tf << EOF
+module "color_system" {
+  source      = "../../modules/color_system_installer"
+  github_repo = "peteywee/color-system"
+  tag         = "v1.0.0"
+  install_dir = pathexpand("~/.color_system")
+}
+
+# Add your new project-specific resources here
+EOF
+4. Docker-Terraform Integration
+For complete integration, you can use Terraform to manage Docker resources:
+
+bash
+# ~/architecture/infrastructure/modules/docker_compose/main.tf
+cat > ~/architecture/infrastructure/modules/docker_compose/main.tf << 'EOF'
+variable "compose_file" {
+  type        = string
+  description = "Path to the docker-compose.yml file"
+}
+
+variable "project_name" {
+  type        = string
+  description = "Docker Compose project name"
+}
+
+resource "null_resource" "docker_compose_up" {
+  triggers = {
+    compose_file_hash = filemd5(var.compose_file)
+  }
+
+  provisioner "local-exec" {
+    command = "docker-compose -f ${var.compose_file} -p ${var.project_name} up -d"
+  }
+
+  provisioner "local-exec" {
+    when    = destroy
+    command = "docker-compose -f ${var.compose_file} -p ${var.project_name} down"
+  }
+}
+EOF
+
+# Create a project that uses both Terraform and Docker
+mkdir -p ~/architecture/infrastructure/projects/web-app
+
+cat > ~/architecture/infrastructure/projects/web-app/main.tf << 'EOF'
+module "color_system" {
+  source      = "../../modules/color_system_installer"
+  github_repo = "peteywee/color-system"
+  tag         = "v1.0.0"
+  install_dir = pathexpand("~/.color_system")
+}
+
+module "app_containers" {
+  source       = "../../modules/docker_compose"
+  compose_file = "${path.module}/docker-compose.yml"
+  project_name = "web-app"
+  
+  depends_on = [module.color_system]
+}
+EOF
+
+cat > ~/architecture/infrastructure/projects/web-app/terragrunt.hcl << 'EOF'
+include {
+  path = find_in_parent_folders()
+}
+
+terraform {
+  source = "./"
+}
+EOF
+
+cat > ~/architecture/infrastructure/projects/web-app/docker-compose.yml << 'EOF'
+version: '3.8'
+
+services:
+  app:
+    image: dev-env:latest
+    volumes:
+      - ./app:/app
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgres://postgres:postgres@db:5432/dev
+    depends_on:
+      - db
+  
+  db:
+    image: postgres:14
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=dev
+    ports:
+      - "5432:5432"
+
+volumes:
+  postgres_data:
+EOF
+This comprehensive setup provides you with:
+
+Docker Infrastructure:
+Base and development Docker images
+Docker Compose templates for different project types
+Easy-to-use scripts for building images and running projects
+Docker aliases for common operations
+Terraform Infrastructure:
+Modular structure with reusable components
+Terragrunt for DRY configuration
+Example projects ready for customization
+Integration with Docker resources
+Terraform aliases for streamlined workflows
+Integration Between Systems:
+Docker containers managed by Terraform
+Shared configuration and state management
+Consistent project structure and naming conventions
+The entire setup follows best practices for both Docker and Terraform, allowing you to manage complex environments with minimal effort while maintaining full control over configuration and deployment.
+
+
+
+
+Retry
+I don't see postgres or supabase implementaion complete the entire implementaion do an infinite loop with all factors until you have a complete unit with services and watchdogs and a comprehensive strategy include technical docs user manuals setups scaffolds and github sutomations with packages that I need to publish and full todos and isses
+
+Edit
+
+Engineered comprehensive tech solution with multiple integrated components
+2s
+
+
+
+Comprehensive System Implementation
+This is a complete implementation of your system, including PostgreSQL, Supabase, services, watchdogs, documentation, and GitHub automations. Each component is designed to work together as a unified system.
+
+Table of Contents
+System Architecture
+PostgreSQL Implementation
+Supabase Integration
+Services & Watchdogs
+Docker Infrastructure
+Terraform Infrastructure
+Documentation System
+GitHub Automations
+Package Publishing System
+Issue & TODO Management
+1. System Architecture
+$HOME/
+├── .config/                           # User configuration files
+│   ├── systemd/user/                  # User-level systemd services
+│   └── supabase/                      # Supabase configuration
+├── architecture/                      # Infrastructure as code
+│   └── infrastructure/
+│       ├── modules/                   # Reusable Terraform modules
+│       ├── projects/                  # Project-specific configurations
+│       └── manifests/                 # Package & service lists
+├── dotfiles/                          # Environment configuration
+│   ├── bootstrap.sh                   # Main bootstrap script
+│   ├── bash/                          # Shell configurations
+│   ├── git/                           # Git configurations
+│   ├── postgres/                      # PostgreSQL configurations
+│   ├── docker/                        # Docker templates and scripts
+│   ├── supabase/                      # Supabase CLI and templates
+│   ├── templates/                     # Project templates
+│   └── scripts/                       # Utility scripts
+├── projects/                          # Project directories
+├── services/                          # System services
+│   ├── postgres/                      # PostgreSQL service files
+│   ├── watchdog/                      # Monitoring services
+│   ├── scheduler/                     # Task scheduler
+│   └── backup/                        # Backup services
+├── packages/                          # Package repositories
+│   ├── node/                          # Node.js packages
+│   ├── python/                        # Python packages
+│   └── docker/                        # Docker images
+└── docs/                              # Documentation
+    ├── technical/                     # Technical documentation
+    ├── user/                          # User manuals
+    ├── api/                           # API documentation
+    └── diagrams/                      # System diagrams
+2. PostgreSQL Implementation
+2.1 PostgreSQL Setup Script
+Create a comprehensive PostgreSQL setup script:
+
+bash
+#!/usr/bin/env bash
+# ~/dotfiles/postgres/setup.sh
+set -euo pipefail
+
+# Configuration variables
+PG_VERSION="15"
+PG_DATA_DIR="/var/lib/postgresql/${PG_VERSION}/main"
+PG_CONFIG_DIR="$HOME/dotfiles/postgres/config"
+PG_SCRIPTS_DIR="$HOME/dotfiles/postgres/scripts"
+PG_SERVICE_DIR="$HOME/services/postgres"
+
+# Create directories
+mkdir -p "$PG_CONFIG_DIR" "$PG_SCRIPTS_DIR" "$PG_SERVICE_DIR"
+
+echo "==> Installing PostgreSQL ${PG_VERSION}..."
+if ! dpkg -s "postgresql-${PG_VERSION}" &>/dev/null; then
+  # Add PostgreSQL repository
+  echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+  wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+  sudo apt-get update
+
+  # Install PostgreSQL
+  sudo apt-get install -y "postgresql-${PG_VERSION}" "postgresql-contrib-${PG_VERSION}" "postgresql-client-${PG_VERSION}" libpq-dev
+fi
+
+echo "==> Configuring PostgreSQL..."
+# Create custom PostgreSQL configuration
+cat > "$PG_CONFIG_DIR/postgresql.custom.conf" << EOF
+# Custom PostgreSQL configuration
+listen_addresses = 'localhost'
+port = 5432
+max_connections = 100
+shared_buffers = 128MB
+dynamic_shared_memory_type = posix
+max_wal_size = 1GB
+min_wal_size = 80MB
+log_timezone = 'UTC'
+datestyle = 'iso, mdy'
+timezone = 'UTC'
+lc_messages = 'en_US.UTF-8'
+lc_monetary = 'en_US.UTF-8'
+lc_numeric = 'en_US.UTF-8'
+lc_time = 'en_US.UTF-8'
+default_text_search_config = 'pg_catalog.english'
+EOF
+
+# Apply the custom configuration
+sudo cp "$PG_CONFIG_DIR/postgresql.custom.conf" "${PG_DATA_DIR}/postgresql.custom.conf"
+if ! grep -q "include 'postgresql.custom.conf'" "${PG_DATA_DIR}/postgresql.conf"; then
+  echo "include 'postgresql.custom.conf'" | sudo tee -a "${PG_DATA_DIR}/postgresql.conf" > /dev/null
+fi
+
+echo "==> Creating PostgreSQL users and databases..."
+# Setup superuser for current user
+sudo -u postgres psql -c "CREATE ROLE $USER WITH LOGIN SUPERUSER CREATEDB CREATEROLE PASSWORD 'postgres';" || true
+sudo -u postgres psql -c "CREATE DATABASE $USER OWNER $USER;" || true
+
+# Create development database
+sudo -u postgres psql -c "CREATE DATABASE development OWNER $USER;" || true
+
+echo "==> Creating PostgreSQL management scripts..."
+# Backup script
+cat > "$PG_SCRIPTS_DIR/pg_backup.sh" << 'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+BACKUP_DIR="$HOME/backups/postgres"
+mkdir -p "$BACKUP_DIR"
+
+# Get date for backup file
+DATE=$(date +%Y%m%d_%H%M%S)
+
+# Get list of databases
+databases=$(psql -l -t | grep -v template | grep -v postgres | awk '{print $1}' | grep -v '^|' | grep -v '^$')
+
+# Backup each database
+for db in $databases; do
+  echo "Backing up $db..."
+  pg_dump -Fc "$db" > "$BACKUP_DIR/${db}_${DATE}.dump"
+done
+
+# Clean up old backups (keep last 7 days)
+find "$BACKUP_DIR" -type f -name "*.dump" -mtime +7 -delete
+
+echo "PostgreSQL backups completed: $BACKUP_DIR"
+EOF
+chmod +x "$PG_SCRIPTS_DIR/pg_backup.sh"
+
+# Restore script
+cat > "$PG_SCRIPTS_DIR/pg_restore.sh" << 'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ $# -ne 2 ]; then
+  echo "Usage: $0 <backup_file> <database_name>"
+  exit 1
+fi
+
+BACKUP_FILE="$1"
+DB_NAME="$2"
+
+if [ ! -f "$BACKUP_FILE" ]; then
+  echo "Error: Backup file not found: $BACKUP_FILE"
+  exit 1
+fi
+
+echo "Restoring $BACKUP_FILE to database $DB_NAME..."
+
+# Drop and recreate the database
+psql -c "DROP DATABASE IF EXISTS $DB_NAME;"
+psql -c "CREATE DATABASE $DB_NAME;"
+
+# Restore the database
+pg_restore -d "$DB_NAME" "$BACKUP_FILE"
+
+echo "Database restored successfully!"
+EOF
+chmod +x "$PG_SCRIPTS_DIR/pg_restore.sh"
+
+# Create a script to setup a new project database
+cat > "$PG_SCRIPTS_DIR/pg_create_project_db.sh" << 'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ $# -lt 1 ]; then
+  echo "Usage: $0 <project_name> [schema_file]"
+  exit 1
+fi
+
+PROJECT_NAME="$1"
+SCHEMA_FILE="${2:-}"
+
+echo "Creating database for project: $PROJECT_NAME"
+
+# Create database and role
+psql -c "CREATE ROLE ${PROJECT_NAME}_role WITH LOGIN PASSWORD '${PROJECT_NAME}_pass';" || true
+psql -c "CREATE DATABASE ${PROJECT_NAME}_db OWNER ${PROJECT_NAME}_role;" || true
+psql -c "GRANT ALL PRIVILEGES ON DATABASE ${PROJECT_NAME}_db TO ${PROJECT_NAME}_role;"
+
+# Apply schema if provided
+if [ -n "$SCHEMA_FILE" ] && [ -f "$SCHEMA_FILE" ]; then
+  echo "Applying schema from $SCHEMA_FILE..."
+  psql -d "${PROJECT_NAME}_db" -f "$SCHEMA_FILE"
+fi
+
+echo "Database setup complete!"
+echo "Connection string: postgresql://${PROJECT_NAME}_role:${PROJECT_NAME}_pass@localhost:5432/${PROJECT_NAME}_db"
+EOF
+chmod +x "$PG_SCRIPTS_DIR/pg_create_project_db.sh"
+
+# Create a systemd service for auto-backup
+mkdir -p "$HOME/.config/systemd/user"
+cat > "$HOME/.config/systemd/user/postgres-backup.service" << EOF
+[Unit]
+Description=PostgreSQL Backup Service
+After=postgresql.service
+
+[Service]
+Type=oneshot
+ExecStart=${PG_SCRIPTS_DIR}/pg_backup.sh
+EOF
+
+cat > "$HOME/.config/systemd/user/postgres-backup.timer" << EOF
+[Unit]
+Description=Run PostgreSQL Backup daily
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+# Enable and start the backup timer
+systemctl --user daemon-reload
+systemctl --user enable postgres-backup.timer
+systemctl --user start postgres-backup.timer
+
+echo "==> Setting up PostgreSQL aliases..."
+# Create PostgreSQL aliases
+cat > "$HOME/dotfiles/postgres/.pg_aliases" << 'EOF'
+# PostgreSQL shortcuts
+alias pgstart='sudo systemctl start postgresql'
+alias pgstop='sudo systemctl stop postgresql'
+alias pgrestart='sudo systemctl restart postgresql'
+alias pgstatus='sudo systemctl status postgresql'
+alias pgbackup='$HOME/dotfiles/postgres/scripts/pg_backup.sh'
+alias pgrestore='$HOME/dotfiles/postgres/scripts/pg_restore.sh'
+alias pgcreate='$HOME/dotfiles/postgres/scripts/pg_create_project_db.sh'
+
+# psql shortcuts
+alias psql='psql -U $USER'
+alias pgls='psql -c "\\l"'
+alias pgtables='psql -c "\\dt"'
+alias pgusers='psql -c "\\du"'
+EOF
+
+# Source the PostgreSQL aliases
+echo "source $HOME/dotfiles/postgres/.pg_aliases" >> "$HOME/dotfiles/bash/.bash_aliases"
+
+echo "==> PostgreSQL setup complete!"
+2.2 Project Database Integration
+Update the project scaffold script to integrate PostgreSQL:
+
+bash
+#!/usr/bin/env bash
+# ~/dotfiles/scaffold.sh
+set -euo pipefail
+
+if [ $# -lt 2 ]; then
+  echo "Usage: scaffold.sh <template> <project-name> [options]"
+  echo "  Available templates: express, flask, react, vue"
+  echo "  Options:"
+  echo "    --db       Create a PostgreSQL database for this project"
+  echo "    --supabase Initialize with Supabase"
+  exit 1
+fi
+
+TEMPLATE=$1
+PROJECT=$2
+shift 2
+
+# Default options
+CREATE_DB=false
+USE_SUPABASE=false
+
+# Parse additional options
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --db)
+      CREATE_DB=true
+      shift
+      ;;
+    --supabase)
+      USE_SUPABASE=true
+      shift
+      ;;
+    *)
+      echo "Unknown option: $1"
+      exit 1
+      ;;
+  esac
+done
+
+TEMPLATES_DIR="$HOME/dotfiles/templates/$TEMPLATE"
+PG_SCRIPTS_DIR="$HOME/dotfiles/postgres/scripts"
+
+if [ ! -d "$TEMPLATES_DIR" ]; then
+  echo "Error: template '$TEMPLATE' not found in $TEMPLATES_DIR"
+  exit 1
+fi
+
+echo "==> Creating new project '$PROJECT' from '$TEMPLATE' template"
+mkdir -p "$PROJECT"
+cp -R "$TEMPLATES_DIR/." "$PROJECT/"
+cd "$PROJECT"
+
+echo "-> Initializing git repo"
+git init
+git add .
+git commit -m "chore: scaffold $TEMPLATE project"
+
+# Create database if requested
+if [ "$CREATE_DB" = true ]; then
+  echo "-> Setting up PostgreSQL database for $PROJECT"
+  "$PG_SCRIPTS_DIR/pg_create_project_db.sh" "$PROJECT" "./db/init.sql"
+  
+  # Update .env file with database credentials
+  if [ -f ".env.example" ]; then
+    cp .env.example .env
+    sed -i "s|DATABASE_URL=.*|DATABASE_URL=postgresql://${PROJECT}_role:${PROJECT}_pass@localhost:5432/${PROJECT}_db|g" .env
+  else
+    echo "DATABASE_URL=postgresql://${PROJECT}_role:${PROJECT}_pass@localhost:5432/${PROJECT}_db" > .env
+  fi
+fi
+
+# Initialize Supabase if requested
+if [ "$USE_SUPABASE" = true ]; then
+  echo "-> Initializing Supabase"
+  supabase init
+fi
+
+echo "✅ Project '$PROJECT' scaffolded. Next steps:"
+echo "   1) cd $PROJECT"
+echo "   2) Review project files and configuration"
+echo "   3) Install deps: 'npm install' or 'pip install -r requirements.txt'"
+if [ "$CREATE_DB" = true ]; then
+  echo "   4) Your PostgreSQL database is ready: ${PROJECT}_db"
+fi
+if [ "$USE_SUPABASE" = true ]; then
+  echo "   5) Start Supabase: 'supabase start'"
+fi
+3. Supabase Integration
+3.1 Supabase Setup Script
+Create a comprehensive Supabase setup:
+
+bash
+#!/usr/bin/env bash
+# ~/dotfiles/supabase/setup.sh
+set -euo pipefail
+
+SUPABASE_DIR="$HOME/dotfiles/supabase"
+SUPABASE_CONFIG_DIR="$HOME/.config/supabase"
+SUPABASE_TEMPLATE_DIR="$SUPABASE_DIR/templates"
+
+mkdir -p "$SUPABASE_DIR" "$SUPABASE_CONFIG_DIR" "$SUPABASE_TEMPLATE_DIR"
+
+echo "==> Installing Supabase CLI..."
+if ! command -v supabase &>/dev/null; then
+  # Install with NPM
+  sudo npm install -g supabase
+fi
+
+echo "==> Setting up Supabase tooling..."
+# Create Supabase configuration directory
+mkdir -p "$SUPABASE_CONFIG_DIR"
+
+# Create Supabase project template
+mkdir -p "$SUPABASE_TEMPLATE_DIR/migrations"
+mkdir -p "$SUPABASE_TEMPLATE_DIR/functions"
+mkdir -p "$SUPABASE_TEMPLATE_DIR/seed"
+
+# Create sample migration
+cat > "$SUPABASE_TEMPLATE_DIR/migrations/20230101000000_initial_schema.sql" << 'EOF'
+-- Initial database schema
+
+-- Enable pgcrypto extension
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+-- Create users table
+CREATE TABLE public.profiles (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL UNIQUE,
+  username TEXT UNIQUE,
+  full_name TEXT,
+  avatar_url TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ
+);
+
+-- Create RLS policies
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Public profiles are viewable by everyone." ON public.profiles
+  FOR SELECT USING (true);
+
+CREATE POLICY "Users can insert their own profile." ON public.profiles
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update own profile." ON public.profiles
+  FOR UPDATE USING (auth.uid() = user_id);
+
+-- Set up realtime
+ALTER PUBLICATION supabase_realtime ADD TABLE public.profiles;
+
+-- Function to handle user creation
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO public.profiles (user_id, username, full_name, avatar_url)
+  VALUES (
+    NEW.id,
+    NEW.raw_user_meta_data->>'username',
+    NEW.raw_user_meta_data->>'full_name',
+    NEW.raw_user_meta_data->>'avatar_url'
+  );
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Trigger for new user creation
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+EOF
+
+# Create seed data
+cat > "$SUPABASE_TEMPLATE_DIR/seed/seed_data.sql" << 'EOF'
+-- Seed data for development
+
+-- Insert test profiles
+INSERT INTO public.profiles (user_id, username, full_name, avatar_url)
+VALUES 
+  ('00000000-0000-0000-0000-000000000001', 'test_user', 'Test User', 'https://placeholder.com/avatar.png')
+ON CONFLICT (user_id) DO NOTHING;
+EOF
+
+# Create Edge Function template
+cat > "$SUPABASE_TEMPLATE_DIR/functions/hello-world.js" << 'EOF'
+// Example Edge Function
+export async function handler(req, res) {
+  return res.json({ message: "Hello from Supabase Edge Functions!" });
+}
+EOF
+
+# Create Supabase project configuration template
+cat > "$SUPABASE_TEMPLATE_DIR/supabase.json" << 'EOF'
+{
+  "version": "0.0.1",
+  "project": {
+    "name": "project-name",
+    "id": "project-id"
+  },
+  "api": {
+    "port": 54321,
+    "schemas": [
+      "public",
+      "auth",
+      "storage"
+    ],
+    "defaultSchema": "public"
+  },
+  "db": {
+    "port": 54322
+  },
+  "auth": {
+    "port": 54323
+  },
+  "storage": {
+    "port": 54324
+  },
+  "realtime": {
+    "port": 54325
+  }
+}
+EOF
+
+# Create utility script for Supabase project initialization
+cat > "$SUPABASE_DIR/init-project.sh" << 'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ $# -lt 1 ]; then
+  echo "Usage: $0 <project-name> [supabase-project-id]"
+  exit 1
+fi
+
+PROJECT_NAME=$1
+SUPABASE_PROJECT_ID=${2:-}
+TEMPLATES_DIR="$HOME/dotfiles/supabase/templates"
+
+# Create project directory
+mkdir -p "$PROJECT_NAME"
+cd "$PROJECT_NAME"
+
+# Initialize Supabase project
+supabase init
+
+# Copy template files
+mkdir -p "supabase/migrations"
+mkdir -p "supabase/functions"
+mkdir -p "supabase/seed"
+
+cp "$TEMPLATES_DIR/migrations/"* "supabase/migrations/"
+cp "$TEMPLATES_DIR/functions/"* "supabase/functions/"
+cp "$TEMPLATES_DIR/seed/"* "supabase/seed/"
+
+# Configure project
+cat > "supabase/config.toml" << EOT
+# Supabase configuration
+
+[api]
+port = 54321
+schemas = ["public", "auth", "storage"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 15
+
+[studio]
+port = 54323
+
+[auth]
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["https://localhost:3000"]
+autoconfirm = true
+
+[analytics]
+disabled = true
+EOT
+
+# Update supabase.json
+sed -i "s/project-name/$PROJECT_NAME/g" "supabase/supabase.json"
+if [ -n "$SUPABASE_PROJECT_ID" ]; then
+  sed -i "s/project-id/$SUPABASE_PROJECT_ID/g" "supabase/supabase.json"
+fi
+
+echo "✅ Supabase project initialized in $PROJECT_NAME"
+echo "Next steps:"
+echo "  1. cd $PROJECT_NAME"
+echo "  2. supabase start"
+echo "  3. supabase status"
+EOF
+chmod +x "$SUPABASE_DIR/init-project.sh"
+
+# Create client library utilities
+mkdir -p "$SUPABASE_DIR/client"
+
+# JavaScript/TypeScript client
+cat > "$SUPABASE_DIR/client/supabase.js" << 'EOF'
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+EOF
+
+# Python client
+cat > "$SUPABASE_DIR/client/supabase.py" << 'EOF'
+import os
+from supabase import create_client, Client
+
+supabase_url = os.environ.get("SUPABASE_URL")
+supabase_key = os.environ.get("SUPABASE_KEY")
+supabase: Client = create_client(supabase_url, supabase_key)
+EOF
+
+# Create Supabase aliases
+cat > "$SUPABASE_DIR/.supabase_aliases" << 'EOF'
+# Supabase shortcuts
+alias sb='supabase'
+alias sbstart='supabase start'
+alias sbstop='supabase stop'
+alias sbstatus='supabase status'
+alias sbinit='$HOME/dotfiles/supabase/init-project.sh'
+alias sblogin='supabase login'
+alias sblogs='supabase logs'
+alias sbmigrate='supabase db push'
+alias sbgen='supabase gen types typescript --local > types/supabase.ts'
+EOF
+
+# Add Supabase aliases to shell
+echo "source $SUPABASE_DIR/.supabase_aliases" >> "$HOME/dotfiles/bash/.bash_aliases"
+
+echo "==> Supabase setup complete!"
+3.2 Integrate Supabase into Templates
+Update your project templates to include Supabase integration:
+
+bash
+# ~/dotfiles/templates/express/src/supabase.js
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
+
+const supabase = createClient(supabaseUrl, supabaseKey);
+
+export default supabase;
+bash
+# ~/dotfiles/templates/flask/src/supabase_client.py
+import os
+from supabase import create_client, Client
+
+supabase_url = os.environ.get("SUPABASE_URL")
+supabase_key = os.environ.get("SUPABASE_KEY")
+supabase: Client = create_client(supabase_url, supabase_key)
+4. Services & Watchdogs
+4.1 System Services Setup
+Create a comprehensive suite of system services:
+
+bash
+#!/usr/bin/env bash
+# ~/dotfiles/services/setup_services.sh
+set -euo pipefail
+
+SERVICES_DIR="$HOME/services"
+SYSTEMD_USER_DIR="$HOME/.config/systemd/user"
+
+mkdir -p "$SERVICES_DIR"/{watchdog,scheduler,backup}
+mkdir -p "$SYSTEMD_USER_DIR"
+
+echo "==> Setting up watchdog service..."
+# Create watchdog script
+cat > "$SERVICES_DIR/watchdog/monitor.sh" << 'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+LOG_DIR="$HOME/.logs/watchdog"
+mkdir -p "$LOG_DIR"
+LOG_FILE="$LOG_DIR/$(date +%Y%m%d).log"
+
+log() {
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"
+}
+
+check_service() {
+  local service="$1"
+  if ! systemctl --user is-active "$service" &>/dev/null; then
+    log "Service $service is not running. Attempting to restart..."
+    systemctl --user restart "$service" || log "Failed to restart $service"
+  else
+    log "Service $service is running."
+  fi
+}
+
+check_process() {
+  local process="$1"
+  if ! pgrep -f "$process" &>/dev/null; then
+    log "Process $process is not running."
+  else
+    log "Process $process is running."
+  fi
+}
+
+check_disk_space() {
+  local threshold=90
+  local usage=$(df -h / | tail -n 1 | awk '{print $5}' | tr -d '%')
+  
+  if (( usage > threshold )); then
+    log "WARNING: Disk space critical ($usage% used)"
+  else
+    log "Disk space usage: $usage%"
+  fi
+}
+
+check_memory() {
+  local threshold=90
+  local free_output=$(free -m | grep Mem)
+  local total_mem=$(echo "$free_output" | awk '{print $2}')
+  local used_mem=$(echo "$free_output" | awk '{print $3}')
+  local used_percent=$((used_mem * 100 / total_mem))
+  
+  if (( used_percent > threshold )); then
+    log "WARNING: Memory usage high ($used_percent%)"
+  else
+    log "Memory usage: $used_percent%"
+  fi
+}
+
+check_postgres() {
+  if systemctl is-active postgresql &>/dev/null; then
+    log "PostgreSQL is running."
+  else
+    log "WARNING: PostgreSQL is not running. Attempting to start..."
+    sudo systemctl start postgresql || log "Failed to start PostgreSQL"
+  fi
+}
+
+check_docker() {
+  if systemctl is-active docker &>/dev/null; then
+    log "Docker is running."
+  else
+    log "WARNING: Docker is not running. Attempting to start..."
+    sudo systemctl start docker || log "Failed to start Docker"
+  fi
+}
+
+run_checks() {
+  log "=== Starting system checks ==="
+  
+  # Check services
+  check_service "postgres-backup.timer"
+  
+  # Check processes
+  check_process "postgres"
+  check_process "docker"
+  
+  # Check system resources
+  check_disk_space
+  check_memory
+  
+  # Check database
+  check_postgres
+  
+  # Check Docker
+  check_docker
+  
+  log "=== System checks completed ==="
+}
+
+run_checks
+EOF
+chmod +x "$SERVICES_DIR/watchdog/monitor.sh"
+
+# Create watchdog service
+cat > "$SYSTEMD_USER_DIR/watchdog.service" << EOF
+[Unit]
+Description=System Watchdog Service
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=$SERVICES_DIR/watchdog/monitor.sh
+EOF
+
+# Create watchdog timer
+cat > "$SYSTEMD_USER_DIR/watchdog.timer" << EOF
+[Unit]
+Description=Run Watchdog every hour
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+echo "==> Setting up backup service..."
+# Create backup script
+cat > "$SERVICES_DIR/backup/backup.sh" << 'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+BACKUP_ROOT="$HOME/backups"
+LOG_DIR="$HOME/.logs/backup"
+mkdir -p "$BACKUP_ROOT" "$LOG_DIR"
+LOG_FILE="$LOG_DIR/$(date +%Y%m%d).log"
+
+log() {
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"
+}
+
+backup_dotfiles() {
+  log "Backing up dotfiles..."
+  mkdir -p "$BACKUP_ROOT/dotfiles"
+  BACKUP_FILE="$BACKUP_ROOT/dotfiles/dotfiles_$(date +%Y%m%d_%H%M%S).tar.gz"
+  
+  tar -czf "$BACKUP_FILE" -C "$HOME" dotfiles
+  log "Dotfiles backed up to $BACKUP_FILE"
+}
+
+backup_projects() {
+  log "Backing up projects..."
+  mkdir -p "$BACKUP_ROOT/projects"
+  BACKUP_FILE="$BACKUP_ROOT/projects/projects_$(date +%Y%m%d_%H%M%S).tar.gz"
+  
+  find "$HOME/projects" -maxdepth 1 -type d -not -path "$HOME/projects" | while read -r project; do
+    if [ -d "$project/.git" ]; then
+      log "Backing up project: $(basename "$project")"
+      tar -czf "$BACKUP_ROOT/projects/$(basename "$project")_$(date +%Y%m%d_%H%M%S).tar.gz" -C "$HOME/projects" "$(basename "$project")"
+    fi
+  done
+  
+  log "Projects backed up to $BACKUP_ROOT/projects"
+}
+
+backup_postgres() {
+  log "Backing up PostgreSQL databases..."
+  mkdir -p "$BACKUP_ROOT/postgres"
+  
+  if command -v pg_dumpall &>/dev/null; then
+    pg_dumpall -c > "$BACKUP_ROOT/postgres/all_dbs_$(date +%Y%m%d_%H%M%S).sql"
+    log "All PostgreSQL databases backed up"
+  else
+    log "pg_dumpall not found, skipping PostgreSQL backup"
+  fi
+}
+
+clean_old_backups() {
+  log "Cleaning up old backups..."
+  
+  # Keep backups for 30 days
+  find "$BACKUP_ROOT" -type f -mtime +30 -name "*.tar.gz" -delete
+  find "$BACKUP_ROOT" -type f -mtime +30 -name "*.sql" -delete
+  
+  log "Old backups cleaned up"
+}
+
+run_backup() {
+  log "=== Starting backup ==="
+  
+  backup_dotfiles
+  backup_projects
+  backup_postgres
+  clean_old_backups
+  
+  log "=== Backup completed ==="
+}
+
+run_backup
+EOF
+chmod +x "$SERVICES_DIR/backup/backup.sh"
+
+# Create backup service
+cat > "$SYSTEMD_USER_DIR/backup.service" << EOF
+[Unit]
+Description=System Backup Service
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=$SERVICES_DIR/backup/backup.sh
+EOF
+
+# Create backup timer
+cat > "$SYSTEMD_USER_DIR/backup.timer" << EOF
+[Unit]
+Description=Run Backup daily
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+echo "==> Setting up task scheduler..."
+# Create task scheduler script
+cat > "$SERVICES_DIR/scheduler/scheduler.sh" << 'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+TASKS_DIR="$HOME/services/scheduler/tasks"
+LOG_DIR="$HOME/.logs/scheduler"
+mkdir -p "$TASKS_DIR" "$LOG_DIR"
+LOG_FILE="$LOG_DIR/$(date +%Y%m%d).log"
+
+log() {
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"
+}
+
+# Run enabled tasks
+run_tasks() {
+  log "=== Starting scheduled tasks ==="
+  
+  if [ ! -d "$TASKS_DIR" ]; then
+    log "Tasks directory not found: $TASKS_DIR"
+    return 1
+  fi
+  
+  find "$TASKS_DIR" -type f -name "*.sh" | while read -r task; do
+    if [ -x "$task" ]; then
+      log "Running task: $(basename "$task")"
+      "$task" >> "$LOG_FILE" 2>&1 || log "Task failed: $(basename "$task")"
+    else
+      log "Skipping non-executable task: $(basename "$task")"
+    fi
+  done
+  
+  log "=== Scheduled tasks completed ==="
+}
+
+run_tasks
+EOF
+chmod +x "$SERVICES_DIR/scheduler/scheduler.sh"
+
+# Create example task
+mkdir -p "$SERVICES_DIR/scheduler/tasks"
+cat > "$SERVICES_DIR/scheduler/tasks/cleanup.sh" << 'EOF'
+#!/usr/bin/env bash
+# Example task: Clean up temporary files
+
+echo "Cleaning up temporary files..."
+
+# Remove files older than 7 days in /tmp
+find /tmp -type f -user "$(whoami)" -mtime +7 -delete
+
+echo "Temp files cleanup completed"
+EOF
+chmod +x "$SERVICES_DIR/scheduler/tasks/cleanup.sh"
+
+# Create scheduler service
+cat > "$SYSTEMD_USER_DIR/scheduler.service" << EOF
+[Unit]
+Description=Task Scheduler Service
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=$SERVICES_DIR/scheduler/scheduler.sh
+EOF
+
+# Create scheduler timer
+cat > "$SYSTEMD_USER_DIR/scheduler.timer" << EOF
+[Unit]
+Description=Run Scheduler every 6 hours
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=6h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+# Create self-healing script
+cat > "$SERVICES_DIR/watchdog/self-healing.sh" << 'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+LOG_DIR="$HOME/.logs/self-healing"
+mkdir -p "$LOG_DIR"
+LOG_FILE="$LOG_DIR/$(date +%Y%m%d).log"
+
+log() {
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"
+}
+
+repair_postgres() {
+  log "Repairing PostgreSQL..."
+  
+  if ! systemctl is-active postgresql &>/dev/null; then
+    log "Starting PostgreSQL service..."
+    sudo systemctl start postgresql
+  fi
+  
+  log "Checking PostgreSQL connections..."
+  if ! psql -c "SELECT 1;" &>/dev/null; then
+    log "PostgreSQL connection failed, attempting repair..."
+    sudo systemctl restart postgresql
+  fi
+}
+
+repair_docker() {
+  log "Repairing Docker..."
+  
+  if ! systemctl is-active docker &>/dev/null; then
+    log "Starting Docker service..."
+    sudo systemctl start docker
+  fi
+  
+  log "Checking Docker daemon..."
+  if ! docker info &>/dev/null; then
+    log "Docker daemon not responding, attempting repair..."
+    sudo systemctl restart docker
+  fi
+}
+
+repair_dotfiles() {
+  log "Checking dotfiles integrity..."
+  
+  if [ ! -d "$HOME/dotfiles" ]; then
+    log "Dotfiles directory not found, attempting to restore from backup..."
+    LATEST_BACKUP=$(find "$HOME/backups/dotfiles" -name "dotfiles_*.tar.gz" -type f | sort | tail -n 1)
+    
+    if [ -n "$LATEST_BACKUP" ]; then
+      log "Restoring dotfiles from $LATEST_BACKUP..."
+      tar -xzf "$LATEST_BACKUP" -C "$HOME"
+    else
+      log "No dotfiles backup found"
+    fi
+  fi
+  
+  if [ ! -f "$HOME/.bashrc" ]; then
+    log "Restoring .bashrc..."
+    ln -sf "$HOME/dotfiles/bash/.bashrc" "$HOME/.bashrc"
+  fi
+}
+
+repair_services() {
+  log "Checking systemd user services..."
+  
+  systemctl --user daemon-reload
+  
+  for service in watchdog.timer backup.timer scheduler.timer postgres-backup.timer; do
+    if ! systemctl --user is-enabled "$service" &>/dev/null; then
+      log "Enabling service: $service..."
+      systemctl --user enable "$service"
+    fi
+    
+    if ! systemctl --user is-active "$service" &>/dev/null; then
+      log "Starting service: $service..."
+      systemctl --user start "$service"
+    fi
+  done
+}
+
+run_self_healing() {
+  log "=== Starting self-healing process ==="
+  
+  repair_postgres
+  repair_docker
+  repair_dotfiles
+  repair_services
+  
+  log "=== Self-healing completed ==="
+}
+
+run_self_healing
+EOF
+chmod +x "$SERVICES_DIR/watchdog/self-healing.sh"
+
+# Create self-healing service
+cat > "$SYSTEMD_USER_DIR/self-healing.service" << EOF
+[Unit]
+Description=System Self-Healing Service
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=$SERVICES_DIR/watchdog/self-healing.sh
+EOF
+
+# Create self-healing timer
+cat > "$SYSTEMD_USER_DIR/self-healing.timer" << EOF
+[Unit]
+Description=Run Self-Healing daily
+
+[Timer]
+OnBootSec=15min
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+# Enable all services
+systemctl --user daemon-reload
+systemctl --user enable watchdog.timer backup.timer scheduler.timer self-healing.timer
+systemctl --user start watchdog.timer backup.timer scheduler.timer self-healing.timer
+
+echo "==> Services setup complete!"
+5. Docker Infrastructure
+Extend your Docker implementation with advanced features:
+
+bash
+#!/usr/bin/env bash
+# ~/dotfiles/docker/setup_advanced.sh
+set -euo pipefail
+
+DOCKER_DIR="$HOME/dotfiles/docker"
+DOCKER_COMPOSE_DIR="$DOCKER_DIR/compose"
+DOCKER_TEMPLATES_DIR="$DOCKER_DIR/templates"
+
+mkdir -p "$DOCKER_COMPOSE_DIR" "$DOCKER_TEMPLATES_DIR"
+
+echo "==> Setting up advanced Docker infrastructure..."
+
+# Create Docker Compose template with PostgreSQL and Supabase
+cat > "$DOCKER_COMPOSE_DIR/supabase-local.yml" << 'EOF'
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:14
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+  
+  supabase-meta:
+    image: supabase/postgres-meta:latest
+    ports:
+      - "8080:8080"
+    environment:
+      PG_META_PORT: 8080
+      PG_META_DB_HOST: postgres
+      PG_META_DB_PASSWORD: postgres
+      PG_META_DB_NAME: postgres
+      PG_META_DB_USER: postgres
+      PG_META_DB_PORT: 5432
+    depends_on:
+      postgres:
+        condition: service_healthy
+  
+  supabase-auth:
+    image: supabase/gotrue:latest
+    ports:
+      - "9999:9999"
+    environment:
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: 9999
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_HOST: postgres
+      GOTRUE_DB_PORT: 5432
+      GOTRUE_DB_USER: postgres
+      GOTRUE_DB_PASSWORD: postgres
+      GOTRUE_DB_DATABASE: postgres
+      GOTRUE_JWT_SECRET: super-secret-jwt-token-for-local-dev
+      GOTRUE_JWT_EXP: 3600
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_SITE_URL: http://localhost:3000
+      GOTRUE_DISABLE_SIGNUP: "false"
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+  
+  supabase-rest:
+    image: postgrest/postgrest:latest
+    ports:
+      - "3000:3000"
+    environment:
+      PGRST_DB_URI: postgres://postgres:postgres@postgres:5432/postgres
+      PGRST_DB_SCHEMA: public
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: super-secret-jwt-token-for-local-dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+  
+  supabase-realtime:
+    image: supabase/realtime:latest
+    ports:
+      - "4000:4000"
+    environment:
+      DB_HOST: postgres
+      DB_NAME: postgres
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_PORT: 5432
+      PORT: 4000
+      JWT_SECRET: super-secret-jwt-token-for-local-dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+EOF
+
+# Create Docker Compose template for full-stack application
+cat > "$DOCKER_COMPOSE_DIR/full-stack.yml" << 'EOF'
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "4000:4000"
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgres://postgres:postgres@postgres:5432/postgres
+      - PORT=4000
+    volumes:
+      - ./backend:/app
+      - backend_node_modules:/app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+  
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - REACT_APP_API_URL=http://localhost:4000/api
+      - PORT=3000
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    depends_on:
+      - backend
+  
+  postgres:
+    image: postgres:14
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+  
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+volumes:
+  postgres_data:
+  redis_data:
+  backend_node_modules:
+  frontend_node_modules:
+EOF
+
+# Create Docker Compose template for microservices
+cat > "$DOCKER_COMPOSE_DIR/microservices.yml" << 'EOF'
+version: '3.8'
+
+services:
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - NODE_ENV=development
+      - PORT=8000
+      - AUTH_SERVICE_URL=http://auth-service:4001
+      - USER_SERVICE_URL=http://user-service:4002
+      - PRODUCT_SERVICE_URL=http://product-service:4003
+    volumes:
+      - ./api-gateway:/app
+      - api_gateway_node_modules:/app/node_modules
+    depends_on:
+      - auth-service
+      - user-service
+      - product-service
+  
+  auth-service:
+    build:
+      context: ./auth-service
+      dockerfile: Dockerfile
+    ports:
+      - "4001:4001"
+    environment:
+      - NODE_ENV=development
+      - PORT=4001
+      - DATABASE_URL=postgres://postgres:postgres@postgres:5432/auth
+      - REDIS_URL=redis://redis:6379
+    volumes:
+      - ./auth-service:/app
+      - auth_service_node_modules:/app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+  
+  user-service:
+    build:
+      context: ./user-service
+      dockerfile: Dockerfile
+    ports:
+      - "4002:4002"
+    environment:
+      - NODE_ENV=development
+      - PORT=4002
+      - DATABASE_URL=postgres://postgres:postgres@postgres:5432/users
+    volumes:
+      - ./user-service:/app
+      - user_service_node_modules:/app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+  
+  product-service:
+    build:
+      context: ./product-service
+      dockerfile: Dockerfile
+    ports:
+      - "4003:4003"
+    environment:
+      - NODE_ENV=development
+      - PORT=4003
+      - DATABASE_URL=postgres://postgres:postgres@postgres:5432/products
+    volumes:
+      - ./product-service:/app
+      - product_service_node_modules:/app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+  
+  postgres:
+    image: postgres:14
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+  
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+volumes:
+  postgres_data:
+  redis_data:
+  api_gateway_node_modules:
+  auth_service_node_modules:
+  user_service_node_modules:
+  product_service_node_modules:
+EOF
+
+# Create Docker Compose template for data pipeline
+cat > "$DOCKER_COMPOSE_DIR/data-pipeline.yml" << 'EOF'
+version: '3.8'
+
+services:
+  pipeline:
+    build:
+      context: ./pipeline
+      dockerfile: Dockerfile
+    volumes:
+      - ./pipeline:/app
+      - pipeline_data:/data
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=pipeline
+    depends_on:
+      postgres:
+        condition: service_healthy
+  
+  postgres:
+    image: postgres:14
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+  
+  jupyter:
+    build:
+      context: ./jupyter
+      dockerfile: Dockerfile
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./notebooks:/home/jovyan/notebooks
+      - pipeline_data:/data
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=pipeline
+
+volumes:
+  postgres_data:
+  pipeline_data:
+EOF
+
+# Create Docker template for Express.js backend
+cat > "$DOCKER_TEMPLATES_DIR/Dockerfile.express" << 'EOF'
+FROM node:18-alpine
+
+WORKDIR /app
+
+COPY package*.json ./
+
+RUN npm install
+
+COPY . .
+
+EXPOSE 4000
+
+CMD ["npm", "start"]
+EOF
+
+# Create Docker template for React frontend
+cat > "$DOCKER_TEMPLATES_DIR/Dockerfile.react" << 'EOF'
+FROM node:18-alpine as build
+
+WORKDIR /app
+
+COPY package*.json ./
+
+RUN npm install
+
+COPY . .
+
+RUN npm run build
+
+FROM nginx:alpine
+
+COPY --from=build /app/build /usr/share/nginx/html
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]
+EOF
+
+# Create Docker template for Python/Flask backend
+cat > "$DOCKER_TEMPLATES_DIR/Dockerfile.flask" << 'EOF'
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+EXPOSE 5000
+
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "wsgi:app"]
+EOF
+
+# Create Docker template for data pipeline
+cat > "$DOCKER_TEMPLATES_DIR/Dockerfile.pipeline" << 'EOF'
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+CMD ["python", "pipeline.py"]
+EOF
+
+# Create Docker template for Jupyter Notebook
+cat > "$DOCKER_TEMPLATES_DIR/Dockerfile.jupyter" << 'EOF'
+FROM jupyter/scipy-notebook
+
+USER root
+
+RUN apt-get update && apt-get install -y \
+    postgresql-client \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+USER ${NB_UID}
+
+COPY requirements.txt .
+
+RUN pip install --no-cache-dir -r requirements.txt
+
+WORKDIR /home/jovyan/notebooks
+
+CMD ["jupyter", "notebook", "--ip=0.0.0.0", "--no-browser", "--allow-root"]
+EOF
+
+# Create Docker run script
+cat > "$DOCKER_DIR/run-compose.sh" << 'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+COMPOSE_DIR="$HOME/dotfiles/docker/compose"
+
+if [ $# -lt 1 ]; then
+  echo "Usage: $0 <template> [project-dir]"
+  echo "Available templates:"
+  ls -1 "$COMPOSE_DIR"
+  exit 1
+fi
+
+TEMPLATE="$1"
+PROJECT_DIR="${2:-.}"
+
+if [ ! -f "$COMPOSE_DIR/$TEMPLATE" ]; then
+  echo "Error: Template not found: $TEMPLATE"
+  exit 1
+fi
+
+echo "Running Docker Compose with template: $TEMPLATE"
+echo "Project directory: $PROJECT_DIR"
+
+docker-compose -f "$COMPOSE_DIR/$TEMPLATE" -p "$(basename "$PROJECT_DIR")" up -d
+
+echo "Docker Compose is up and running!"
+EOF
+chmod +x "$DOCKER_DIR/run-compose.sh"
+
+# Create Docker scaffolding script
+cat > "$DOCKER_DIR/scaffold-docker.sh" << 'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+TEMPLATES_DIR="$HOME/dotfiles/docker/templates"
+COMPOSE_DIR="$HOME/dotfiles/docker/compose"
+
+if [ $# -lt 2 ]; then
+  echo "Usage: $0 <project-name> <template-type>"
+  echo "Template types: express, react, flask, full-stack, microservices, data-pipeline"
+  exit 1
+fi
+
+PROJECT_NAME="$1"
+TEMPLATE_TYPE="$2"
+
+mkdir -p "$PROJECT_NAME"
+cd "$PROJECT_NAME"
+
+case "$TEMPLATE_TYPE" in
+  express)
+    mkdir -p src
+    cp "$TEMPLATES_DIR/Dockerfile.express" Dockerfile
+    cp "$COMPOSE_DIR/full-stack.yml" docker-compose.yml
+    
+    # Create package.json
+    cat > package.json << 'EOT'
+{
+  "name": "express-app",
+  "version": "1.0.0",
+  "description": "Express API",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "jest"
+  },
+  "dependencies": {
+    "express": "^4.17.1",
+    "pg": "^8.7.1",
+    "dotenv": "^10.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.15",
+    "jest": "^27.4.7"
+  }
+}
+EOT
+    
+    # Create index.js
+    cat > src/index.js << 'EOT'
+const express = require('express');
+const app = express();
+const port = process.env.PORT || 4000;
+
+app.use(express.json());
+
+app.get('/', (req, res) => {
+  res.json({ message: 'API is running' });
+});
+
+app.listen(port, () => {
+  console.log(`Server running on port ${port}`);
+});
+EOT
+    ;;
+    
+  react)
+    mkdir -p src public
+    cp "$TEMPLATES_DIR/Dockerfile.react" Dockerfile
+    
+    # Create package.json
+    cat > package.json << 'EOT'
+{
+  "name": "react-app",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-scripts": "5.0.1"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject"
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  }
+}
+EOT
+    
+    # Create index.js
+    cat > src/index.js << 'EOT'
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import App from './App';
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);
+EOT
+    
+    # Create App.js
+    cat > src/App.js << 'EOT'
+import React from 'react';
+
+function App() {
+  return (
+    <div className="App">
+      <header className="App-header">
+        <h1>React App</h1>
+        <p>
+          Edit <code>src/App.js</code> and save to reload.
+        </p>
+      </header>
+    </div>
+  );
+}
+
+export default App;
+EOT
+    
+    # Create index.html
+    cat > public/index.html << 'EOT'
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>React App</title>
+  </head>
+  <body>
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <div id="root"></div>
+  </body>
+</html>
+EOT
+    ;;
+    
+  flask)
+    mkdir -p src
+    cp "$TEMPLATES_DIR/Dockerfile.flask" Dockerfile
+    
+    # Create requirements.txt
+    cat > requirements.txt << 'EOT'
+Flask==2.0.1
+Flask-SQLAlchemy==2.5.1
+psycopg2-binary==2.9.1
+python-dotenv==0.19.1
+gunicorn==20.1.0
+EOT
+    
+    # Create app.py
+    cat > src/app.py << 'EOT'
+from flask import Flask, jsonify
+from flask_sqlalchemy import SQLAlchemy
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+app = Flask(__name__)
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db = SQLAlchemy(app)
+
+@app.route('/')
+def index():
+    return jsonify({'message': 'API is running'})
+
+if __name__ == '__main__':
+    app.run(debug=True, host='0.0.0.0')
+EOT
+    
+    # Create wsgi.py
+    cat > wsgi.py << 'EOT'
+from src.app import app
+
+if __name__ == "__main__":
+    app.run()
+EOT
+    ;;
+    
+  full-stack)
+    mkdir -p backend/src frontend/src
+    cp "$COMPOSE_DIR/full-stack.yml" docker-compose.yml
+    
+    # Backend setup
+    cp "$TEMPLATES_DIR/Dockerfile.express" backend/Dockerfile
+    
+    # Create backend package.json
+    cat > backend/package.json << 'EOT'
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "Backend API",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "jest"
+  },
+  "dependencies": {
+    "express": "^4.17.1",
+    "pg": "^8.7.1",
+    "dotenv": "^10.0.0",
+    "cors": "^2.8.5"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.15",
+    "jest": "^27.4.7"
+  }
+}
+EOT
+    
+    # Create backend index.js
+    cat > backend/src/index.js << 'EOT'
+const express = require('express');
+const cors = require('cors');
+const app = express();
+const port = process.env.PORT || 4000;
+
+app.use(cors());
+app.use(express.json());
+
+app.get('/api', (req, res) => {
+  res.json({ message: 'API is running' });
+});
+
+app.listen(port, () => {
+  console.log(`Server running on port ${port}`);
+});
+EOT
+    
+    # Frontend setup
+    cp "$TEMPLATES_DIR/Dockerfile.react" frontend/Dockerfile
+    
+    # Create frontend package.json
+    cat > frontend/package.json << 'EOT'
+{
+  "name": "frontend",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-scripts": "5.0.1",
+    "axios": "^0.24.0"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject"
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  }
+}
+EOT
+    
+    # Create frontend App.js
+    cat > frontend/src/App.js << 'EOT'
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+
+function App() {
+  const [message, setMessage] = useState('');
+  
+  useEffect(() => {
+    axios.get(process.env.REACT_APP_API_URL || 'http://localhost:4000/api')
+      .then(response => {
+        setMessage(response.data.message);
+      })
+      .catch(error => {
+        console.error('Error fetching data:', error);
+      });
+  }, []);
+
+  return (
+    <div className="App">
+      <header className="App-header">
+        <h1>Full Stack App</h1>
+        <p>Message from API: {message}</p>
+      </header>
+    </div>
+  );
+}
+
+export default App;
+EOT
+    
+    # Create frontend index.js
+    cat > frontend/src/index.js << 'EOT'
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import App from './App';
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);
+EOT
+    
+    # Create frontend index.html
+    mkdir -p frontend/public
+    cat > frontend/public/index.html << 'EOT'
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Full Stack App</title>
+  </head>
+  <body>
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <div id="root"></div>
+  </body>
+</html>
+EOT
+    ;;
+    
+  microservices)
+    cp "$COMPOSE_DIR/microservices.yml" docker-compose.yml
+    
+    # Create service directories
+    mkdir -p api-gateway/src auth-service/src user-service/src product-service/src
+    
+    # Copy Dockerfiles
+    cp "$TEMPLATES_DIR/Dockerfile.express" api-gateway/Dockerfile
+    cp "$TEMPLATES_DIR/Dockerfile.express" auth-service/Dockerfile
+    cp "$TEMPLATES_DIR/Dockerfile.express" user-service/Dockerfile
+    cp "$TEMPLATES_DIR/Dockerfile.express" product-service/Dockerfile
+    
+    # Initialize each service with basic files (simplified for example)
+    for service in api-gateway auth-service user-service product-service; do
+      # Create package.json
+      cat > "$service/package.json" << EOT
+{
+  "name": "$service",
+  "version": "1.0.0",
+  "description": "$service Microservice",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "jest"
+  },
+  "dependencies": {
+    "express": "^4.17.1",
+    "dotenv": "^10.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.15",
+    "jest": "^27.4.7"
+  }
+}
+EOT
+      
+      # Create index.js
+      cat > "$service/src/index.js" << EOT
+const express = require('express');
+const app = express();
+const port = process.env.PORT || 4000;
+
+app.use(express.json());
+
+app.get('/', (req, res) => {
+  res.json({ service: '$service', message: 'Service is running' });
+});
+
+app.listen(port, () => {
+  console.log(\`$service running on port \${port}\`);
+});
+EOT
+    done
+    ;;
+    
+  data-pipeline)
+    mkdir -p pipeline/src notebooks
+    cp "$COMPOSE_DIR/data-pipeline.yml" docker-compose.yml
+    cp "$TEMPLATES_DIR/Dockerfile.pipeline" pipeline/Dockerfile
+    cp "$TEMPLATES_DIR/Dockerfile.jupyter" jupyter/Dockerfile
+    
+    # Create requirements.txt for pipeline
+    cat > pipeline/requirements.txt << 'EOT'
+pandas==1.5.3
+numpy==1.24.3
+sqlalchemy==2.0.15
+psycopg2-binary==2.9.6
+python-dotenv==1.0.0
+EOT
+    
+    # Create pipeline script
+    cat > pipeline/pipeline.py << 'EOT'
+import os
+import pandas as pd
+import numpy as np
+from sqlalchemy import create_engine
+import time
+
+def get_db_engine():
+    """Get SQLAlchemy engine for PostgreSQL."""
+    host = os.environ.get('POSTGRES_HOST', 'localhost')
+    port = os.environ.get('POSTGRES_PORT', '5432')
+    user = os.environ.get('POSTGRES_USER', 'postgres')
+    password = os.environ.get('POSTGRES_PASSWORD', 'postgres')
+    db = os.environ.get('POSTGRES_DB', 'postgres')
+    
+    connection_string = f"postgresql://{user}:{password}@{host}:{port}/{db}"
+    return create_engine(connection_string)
+
+def main():
+    """Main pipeline function."""
+    print("Starting data pipeline...")
+    
+    # Create database engine
+    engine = get_db_engine()
+    
+    # Example: Create sample data
+    df = pd.DataFrame({
+        'id': range(1, 101),
+        'value': np.random.rand(100),
+        'timestamp': pd.date_range(start='2023-01-01', periods=100)
+    })
+    
+    # Write to database
+    df.to_sql('sample_data', engine, if_exists='replace', index=False)
+    print(f"Written {len(df)} rows to database.")
+    
+    # Sleep and run again every hour
+    while True:
+        print("Waiting for next run...")
+        time.sleep(3600)
+        print("Starting next run...")
+        # Add your pipeline logic here
+        
+if __name__ == "__main__":
+    main()
+EOT
+    
+    # Create requirements.txt for Jupyter
+    cat > jupyter/requirements.txt << 'EOT'
+pandas==1.5.3
+numpy==1.24.3
+sqlalchemy==2.0.15
+psycopg2-binary==2.9.6
+matplotlib==3.7.1
+seaborn==0.12.2
+scikit-learn==1.2.2
+jupyter==1.0.0
+EOT
+    
+    # Create example notebook
+    mkdir -p notebooks
+    cat > notebooks/example.ipynb << 'EOT'
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# Data Analysis Example\n",
+    "\n",
+    "This notebook demonstrates connecting to the PostgreSQL database and analyzing data."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import os\n",
+    "import pandas as pd\n",
+    "import matplotlib.pyplot as plt\n",
+    "import seaborn as sns\n",
+    "from sqlalchemy import create_engine\n",
+    "\n",
+    "# Connect to database\n",
+    "host = os.environ.get('POSTGRES_HOST', 'postgres')\n",
+    "port = os.environ.get('POSTGRES_PORT', '5432')\n",
+    "user = os.environ.get('POSTGRES_USER', 'postgres')\n",
+    "password = os.environ.get('POSTGRES_PASSWORD', 'postgres')\n",
+    "db = os.environ.get('POSTGRES_DB', 'postgres')\n",
+    "\n",
+    "connection_string = f\"postgresql://{user}:{password}@{host}:{port}/{db}\"\n",
+    "engine = create_engine(connection_string)\n",
+    "\n",
+    "# Load data\n",
+    "df = pd.read_sql('SELECT * FROM sample_data', engine)\n",
+    "df.head()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Basic statistics\n",
+    "df.describe()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Plot the data\n",
+    "plt.figure(figsize=(10, 6))\n",
+    "plt.scatter(df['id'], df['value'])\n",
+    "plt.title('Sample Data')\n",
+    "plt.xlabel('ID')\n",
+    "plt.ylabel('Value')\n",
+    "plt.grid(True)\n",
+    "plt.show()"
+   ]
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.8.10"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 4
+}
+EOT
+    ;;
+    
+  *)
+    echo "Error: Unknown template type: $TEMPLATE_TYPE"
+    echo "Available types: express, react, flask, full-stack, microservices, data-pipeline"
+    exit 1
+    ;;
+esac
+
+echo "✅ Docker project scaffolded: $PROJECT_NAME ($TEMPLATE_TYPE)"
+echo "Next steps:"
+echo "  1. cd $PROJECT_NAME"
+echo "  2. Review generated files"
+echo "  3. Run with: docker-compose up -d"
+EOF
+chmod +x "$DOCKER_DIR/scaffold-docker.sh"
+
+# Update Docker aliases
+cat > "$DOCKER_DIR/.docker_aliases" << 'EOF'
+# Docker shortcuts
+alias drun='~/dotfiles/docker/run-compose.sh'
+alias dscaffold='~/dotfiles/docker/scaffold-docker.sh'
+alias dps='docker ps'
+alias dpa='docker ps -a'
+alias di='docker images'
+alias dex='docker exec -it'
+alias dlog='docker logs'
+alias dstop='docker stop $(docker ps -q)'
+alias dclean='docker system prune -f'
+alias dvolumes='docker volume ls'
+alias dinspect='docker inspect'
+alias dnetworks='docker network ls'
+alias dcup='docker-compose up -d'
+alias dcdown='docker-compose down'
+alias dcbuild='docker-compose build'
+alias dclogs='docker-compose logs -f'
+EOF
+
+echo "==> Advanced Docker infrastructure setup complete!"
+6. Terraform Infrastructure
+Extend your Terraform implementation with comprehensive modules:
+
+bash
+#!/usr/bin/env bash
+# ~/dotfiles/terraform/setup_advanced.sh
+set -euo pipefail
+
+TF_DIR="$HOME/architecture/infrastructure"
+TF_MODULES_DIR="$TF_DIR/modules"
+TF_PROJECTS_DIR="$TF_DIR/projects"
+
+mkdir -p "$TF_MODULES_DIR"/{postgres,docker,system_services,github}
+mkdir -p "$TF_PROJECTS_DIR"/{dev,staging,prod}
+
+echo "==> Setting up advanced Terraform infrastructure..."
+
+# Create PostgreSQL module
+cat > "$TF_MODULES_DIR/postgres/main.tf" << 'EOF'
+variable "database_name" {
+  description = "The name of the database to create"
+  type        = string
+}
+
+variable "username" {
+  description = "The username for the database"
+  type        = string
+}
+
+variable "password" {
+  description = "The password for the database"
+  type        = string
+  sensitive   = true
+}
+
+resource "null_resource" "create_database" {
+  provisioner "local-exec" {
+    command = "PGPASSWORD=${var.password} createdb -U ${var.username} ${var.database_name} || true"
+  }
+}
+
+output "database_url" {
+  value     = "postgresql://${var.username}:${var.password}@localhost:5432/${var.database_name}"
+  sensitive = true
+}
+EOF
+
+# Create Docker module
+cat > "$TF_MODULES_DIR/docker/main.tf" << 'EOF'
+variable "compose_file" {
+  description = "Path to the Docker Compose file"
+  type        = string
+}
+
+variable "project_name" {
+  description = "Name of the Docker Compose project"
+  type        = string
+}
+
+resource "null_resource" "docker_compose" {
+  triggers = {
+    compose_file_hash = filemd5(var.compose_file)
+  }
+
+  provisioner "local-exec" {
+    command = "docker-compose -f ${var.compose_file} -p ${var.project_name} up -d"
+  }
+
+  provisioner "local-exec" {
+    when    = destroy
+    command = "docker-compose -f ${var.compose_file} -p ${var.project_name} down"
+  }
+}
+
+output "project_name" {
+  value = var.project_name
+}
+EOF
+
+# Create System Services module
+cat > "$TF_MODULES_DIR/system_services/main.tf" << 'EOF'
+variable "service_name" {
+  description = "Name of the systemd service"
+  type        = string
+}
+
+variable "service_description" {
+  description = "Description of the service"
+  type        = string
+  default     = ""
+}
+
+variable "exec_start" {
+  description = "Command to execute when the service starts"
+  type        = string
+}
+
+variable "user" {
+  description = "User to run the service as"
+  type        = string
+  default     = ""
+}
+
+variable "working_directory" {
+  description = "Working directory for the service"
+  type        = string
+  default     = ""
+}
+
+variable "environment_vars" {
+  description = "Environment variables for the service"
+  type        = map(string)
+  default     = {}
+}
+
+variable "restart" {
+  description = "Restart policy for the service"
+  type        = string
+  default     = "always"
+}
+
+resource "local_file" "service_unit" {
+  content = <<-EOT
+[Unit]
+Description=${var.service_description != "" ? var.service_description : var.service_name}
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=${var.exec_start}
+${var.user != "" ? "User=${var.user}" : ""}
+${var.working_directory != "" ? "WorkingDirectory=${var.working_directory}" : ""}
+${join("\n", [for key, value in var.environment_vars : "Environment=${key}=${value}"])}
+Restart=${var.restart}
+
+[Install]
+WantedBy=multi-user.target
+EOT
+
+  filename = "${path.module}/${var.service_name}.service"
+}
+
+resource "null_resource" "install_service" {
+  triggers = {
+    service_content = local_file.service_unit.content
+  }
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      cp ${local_file.service_unit.filename} ~/.config/systemd/user/
+      systemctl --user daemon-reload
+      systemctl --user enable ${var.service_name}
+      systemctl --user restart ${var.service_name}
+    EOT
+  }
+
+  provisioner "local-exec" {
+    when    = destroy
+    command = <<-EOT
+      systemctl --user stop ${var.service_name} || true
+      systemctl --user disable ${var.service_name} || true
+      rm -f ~/.config/systemd/user/${var.service_name}.service
+      systemctl --user daemon-reload
+    EOT
+  }
+}
+
+output "service_name" {
+  value = var.service_name
+}
+EOF
+
+# Create GitHub module
+cat > "$TF_MODULES_DIR/github/main.tf" << 'EOF'
+terraform {
+  required_providers {
+    github = {
+      source  = "integrations/github"
+      version = "~> 5.0"
+    }
+  }
+}
+
+variable "repository_name" {
+  description = "Name of the GitHub repository"
+  type        = string
+}
+
+variable "description" {
+  description = "Description of the GitHub repository"
+  type        = string
+  default     = ""
+}
+
+variable "visibility" {
+  description = "Visibility of the repository (public, private, or internal)"
+  type        = string
+  default     = "private"
+}
+
+variable "auto_init" {
+  description = "Whether to initialize the repository with a README"
+  type        = bool
+  default     = true
+}
+
+variable "topics" {
+  description = "List of topics to add to the repository"
+  type        = list(string)
+  default     = []
+}
+
+variable "template" {
+  description = "Template repository to use"
+  type = object({
+    owner      = string
+    repository = string
+  })
+  default = null
+}
+
+resource "github_repository" "repo" {
+  name        = var.repository_name
+  description = var.description
+  visibility  = var.visibility
+
+  auto_init = var.auto_init
+  topics    = var.topics
+
+  dynamic "template" {
+    for_each = var.template != null ? [var.template] : []
+    content {
+      owner      = template.value.owner
+      repository = template.value.repository
+    }
+  }
+}
+
+output "html_url" {
+  value = github_repository.repo.html_url
+}
+
+output "git_clone_url" {
+  value = github_repository.repo.git_clone_url
+}
+
+output "ssh_clone_url" {
+  value = github_repository.repo.ssh_clone_url
+}
+EOF
+
+# Create dev environment project
+cat > "$TF_PROJECTS_DIR/dev/main.tf" << 'EOF'
+terraform {
+  required_providers {
+    github = {
+      source  = "integrations/github"
+      version = "~> 5.0"
+    }
+  }
+}
+
+provider "github" {
+  token = var.github_token
+}
+
+module "postgres_dev" {
+  source = "../../modules/postgres"
+
+  database_name = "dev_db"
+  username      = "postgres"
+  password      = "postgres"
+}
+
+module "app_service" {
+  source = "../../modules/system_services"
+
+  service_name        = "app-dev"
+  service_description = "Development Application Service"
+  exec_start          = "/usr/bin/node ${path.module}/app/index.js"
+  working_directory   = "${path.module}/app"
+  
+  environment_vars = {
+    NODE_ENV     = "development"
+    DATABASE_URL = module.postgres_dev.database_url
+    PORT         = "3000"
+  }
+}
+
+module "dev_repo" {
+  source = "../../modules/github"
+
+  repository_name = "app-dev"
+  description     = "Development Application Repository"
+  visibility      = "private"
+  auto_init       = true
+  topics          = ["development", "app"]
+}
+
+output "database_url" {
+  value     = module.postgres_dev.database_url
+  sensitive = true
+}
+
+output "repo_url" {
+  value = module.dev_repo.html_url
+}
+EOF
+
+cat > "$TF_PROJECTS_DIR/dev/variables.tf" << 'EOF'
+variable "github_token" {
+  description = "GitHub personal access token"
+  type        = string
+  sensitive   = true
+}
+EOF
+
+cat > "$TF_PROJECTS_DIR/dev/terraform.tfvars.example" << 'EOF'
+github_token = "your-github-token-here"
+EOF
+
+# Create production environment project
+cat > "$TF_PROJECTS_DIR/prod/main.tf" << 'EOF'
+terraform {
+  required_providers {
+    github = {
+      source  = "integrations/github"
+      version = "~> 5.0"
+    }
+  }
+}
+
+provider "github" {
+  token = var.github_token
+}
+
+module "postgres_prod" {
+  source = "../../modules/postgres"
+
+  database_name = "prod_db"
+  username      = "postgres"
+  password      = var.db_password
+}
+
+module "app_service" {
+  source = "../../modules/system_services"
+
+  service_name        = "app-prod"
+  service_description = "Production Application Service"
+  exec_start          = "/usr/bin/node ${path.module}/app/index.js"
+  working_directory   = "${path.module}/app"
+  
+  environment_vars = {
+    NODE_ENV     = "production"
+    DATABASE_URL = module.postgres_prod.database_url
+    PORT         = "3000"
+  }
+}
+
+module "docker_app" {
+  source = "../../modules/docker"
+
+  compose_file  = "${path.module}/docker-compose.yml"
+  project_name  = "app-prod"
+}
+
+module "prod_repo" {
+  source = "../../modules/github"
+
+  repository_name = "app-prod"
+  description     = "Production Application Repository"
+  visibility      = "private"
+  auto_init       = true
+  topics          = ["production", "app"]
+}
+
+output "database_url" {
+  value     = module.postgres_prod.database_url
+  sensitive = true
+}
+
+output "repo_url" {
+  value = module.prod_repo.html_url
+}
+EOF
+
+cat > "$TF_PROJECTS_DIR/prod/variables.tf" << 'EOF'
+variable "github_token" {
+  description = "GitHub personal access token"
+  type        = string
+  sensitive   = true
+}
+
+variable "db_password" {
+  description = "Database password for production"
+  type        = string
+  sensitive   = true
+}
+EOF
+
+cat > "$TF_PROJECTS_DIR/prod/terraform.tfvars.example" << 'EOF'
+github_token = "your-github-token-here"
+db_password = "your-secure-password-here"
+EOF
+
+# Create a project for bootstrapping the color_system
+mkdir -p "$TF_PROJECTS_DIR/color-system"
+cat > "$TF_PROJECTS_DIR/color-system/main.tf" << 'EOF'
+terraform {
+  required_providers {
+    null  = { source = "hashicorp/null",  version = "~> 3.2" }
+    local = { source = "hashicorp/local", version = "~> 2.4" }
+  }
+}
+
+resource "null_resource" "color_system_installer" {
+  provisioner "local-exec" {
+    command = <<-EOT
+      #!/usr/bin/env bash
+      set -euo pipefail
+      
+      INSTALL_DIR="${HOME}/.color_system"
+      BASHRC="${HOME}/.bashrc"
+      
+      # Create necessary directories
+      mkdir -p "${INSTALL_DIR}"
+      
+      # Create color_roles.json
+      cat > "${INSTALL_DIR}/color_roles.json" << EOF2
+      {
+        "roles": {
+          "warning": {"color": "yellow", "code": "\\033[1;33m"},
+          "error": {"color": "red", "code": "\\033[1;31m"},
+          "success": {"color": "green", "code": "\\033[1;32m"},
+          "info": {"color": "blue", "code": "\\033[1;34m"},
+          "reset": {"color": "default", "code": "\\033[0m"}
+        }
+      }
+      EOF2
+      
+      # Create loader script
+      cat > "${INSTALL_DIR}/color_roles_loader.sh" << EOF2
+      #!/usr/bin/env bash
+      # Version: v1.0.0
+      # Color Role System Loader
+      
+      export COLOR_ROLES_FILE="\$HOME/.color_system/color_roles.json"
+      
+      color_apply() {
+        local role="\$1"
+        local text="\${2:-}"
+        
+        # If no text provided, just output the color code
+        if [[ -z "\$text" ]]; then
+          jq -r ".roles.\${role}.code" "\$COLOR_ROLES_FILE" 2>/dev/null || echo ""
+          return
+        fi
+        
+        # Get color code, apply to text, and reset
+        local color_code=\$(jq -r ".roles.\${role}.code" "\$COLOR_ROLES_FILE" 2>/dev/null)
+        local reset_code=\$(jq -r ".roles.reset.code" "\$COLOR_ROLES_FILE" 2>/dev/null)
+        
+        if [[ -n "\$color_code" && -n "\$reset_code" ]]; then
+          echo -e "\${color_code}\${text}\${reset_code}"
+        else
+          echo "\$text"
+        fi
+      }
+      EOF2
+      
+      # Create aliases
+      cat > "${INSTALL_DIR}/aliases.sh" << EOF2
+      #!/usr/bin/env bash
+      # Color Role System Aliases
+      
+      alias cwarn='color_apply warning'
+      alias cerror='color_apply error'
+      alias csuccess='color_apply success' 
+      alias cinfo='color_apply info'
+      alias creset='color_apply reset'
+      EOF2
+      
+      # Add to .bashrc
+      if ! grep -q "Color Role System" "$BASHRC"; then
+        echo "
+      # Color Role System
+      source \"${INSTALL_DIR}/color_roles_loader.sh\"
+      source \"${INSTALL_DIR}/aliases.sh\"" >> "$BASHRC"
+      fi
+      
+      chmod +x "${INSTALL_DIR}/color_roles_loader.sh"
+      chmod +x "${INSTALL_DIR}/aliases.sh"
+      
+      echo "✅ Color Role System installed successfully."
+    EOT
+  }
+}
+
+output "result" {
+  value = "Color Role System installed at ~/.color_system"
+}
+EOF
+
+# Create Terragrunt configuration
+cat > "$TF_DIR/terragrunt.hcl" << 'EOF'
+remote_state {
+  backend = "local"
+  config = {
+    path = "${get_path_to_repo_root()}/.state/${path_relative_to_include()}.tfstate"
+  }
+}
+
+generate "provider" {
+  path      = "provider.tf"
+  if_exists = "overwrite"
+  contents  = <<EOF
+terraform {
+  required_providers {
+    null  = { source = "hashicorp/null",  version = "~> 3.2" }
+    local = { source = "hashicorp/local", version = "~> 2.4" }
+    github = { source = "integrations/github", version = "~> 5.0" }
+  }
+}
+EOF
+}
+EOF
+
+# Create project-specific Terragrunt files
+for project in dev prod color-system; do
+  cat > "$TF_PROJECTS_DIR/$project/terragrunt.hcl" << EOF
+include {
+  path = find_in_parent_folders()
+}
+
+terraform {
+  source = "./"
+}
+EOF
+done
+
+# Create Terraform wrapper script with more advanced features
+cat > "$TF_DIR/tf-wrapper.sh" << 'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+TF_DIR="$HOME/architecture/infrastructure"
+ACTION="${1:-help}"
+PROJECT="${2:-}"
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Help function
+show_help() {
+  echo -e "${BLUE}===== Terraform Wrapper =====${NC}"
+  echo "Usage: $0 <action> [project]"
+  echo ""
+  echo "Actions:"
+  echo "  init <project>        - Initialize Terraform for the specified project"
+  echo "  plan <project>        - Plan Terraform changes for the specified project"
+  echo "  apply <project>       - Apply Terraform changes for the specified project"
+  echo "  destroy <project>     - Destroy Terraform resources for the specified project"
+  echo "  list                  - List available projects"
+  echo "  create <project>      - Create a new project from template"
+  echo "  run-all <action>      - Run action on all projects using Terragrunt"
+  echo "  clean <project>       - Clean Terraform files for the specified project"
+  echo "  output <project>      - Show outputs for the specified project"
+  echo "  help                  - Show this help message"
+  echo ""
+  echo "Examples:"
+  echo "  $0 init dev           - Initialize dev project"
+  echo "  $0 plan dev           - Plan changes for dev project"
+  echo "  $0 apply dev          - Apply changes for dev project"
+  echo "  $0 run-all init       - Initialize all projects"
+  echo ""
+}
+
+# Check if Terraform is installed
+check_terraform() {
+  if ! command -v terraform &>/dev/null; then
+    echo -e "${RED}Terraform is not installed.${NC}"
+    echo "Installing Terraform..."
+    
+    # Add HashiCorp GPG key
+    wget -O- https://apt.releases.hashicorp.com/gpg | \
+      gpg --dearmor | \
+      sudo tee /usr/share/keyrings/hashicorp-archive-keyring.gpg >/dev/null
+    
+    # Add HashiCorp repository
+    echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] \
+      https://apt.releases.hashicorp.com $(lsb_release -cs) main" | \
+      sudo tee /etc/apt/sources.list.d/hashicorp.list
+    
+    # Install Terraform
+    sudo apt-get update && sudo apt-get install -y terraform
+  fi
+}
+
+# Check if Terragrunt is installed
+check_terragrunt() {
+  if ! command -v terragrunt &>/dev/null; then
+    echo -e "${YELLOW}Terragrunt is not installed.${NC}"
+    echo "Installing Terragrunt..."
+    TERRAGRUNT_VERSION=$(curl -s https://api.github.com/repos/gruntwork-io/terragrunt/releases/latest | grep tag_name | cut -d '"' -f 4)
+    
+    # Download and install Terragrunt
+    curl -Lo terragrunt "https://github.com/gruntwork-io/terragrunt/releases/download/${TERRAGRUNT_VERSION}/terragrunt_linux_amd64"
+    chmod +x terragrunt
+    sudo mv terragrunt /usr/local/bin/
+  fi
+}
+
+# List available projects
+list_projects() {
+  echo -e "${BLUE}Available projects:${NC}"
+  find "$TF_DIR/projects" -maxdepth 1 -mindepth 1 -type d | sort | while read -r project; do
+    echo -e "  - ${GREEN}$(basename "$project")${NC}"
+  done
+}
+
+# Create a new project from template
+create_project() {
+  if [ -z "$PROJECT" ]; then
+    echo -e "${RED}Error: Project name is required.${NC}"
+    show_help
+    exit 1
+  fi
+  
+  if [ -d "$TF_DIR/projects/$PROJECT" ]; then
+    echo -e "${RED}Error: Project '$PROJECT' already exists.${NC}"
+    exit 1
+  fi
+  
+  echo -e "${BLUE}Creating new project: $PROJECT${NC}"
+  
+  # Create project directory
+  mkdir -p "$TF_DIR/projects/$PROJECT"
+  
+  # Copy template files
+  cp "$TF_DIR/projects/dev/terragrunt.hcl" "$TF_DIR/projects/$PROJECT/"
+  
+  # Create main.tf
+  cat > "$TF_DIR/projects/$PROJECT/main.tf" << EOT
+terraform {
+  required_providers {
+    github = {
+      source  = "integrations/github"
+      version = "~> 5.0"
+    }
+  }
+}
+
+provider "github" {
+  token = var.github_token
+}
+
+# Add your resources here
+
+output "project_name" {
+  value = "$PROJECT"
+}
+EOT
+  
+  # Create variables.tf
+  cat > "$TF_DIR/projects/$PROJECT/variables.tf" << EOT
+variable "github_token" {
+  description = "GitHub personal access token"
+  type        = string
+  sensitive   = true
+}
+EOT
+  
+  # Create terraform.tfvars.example
+  cat > "$TF_DIR/projects/$PROJECT/terraform.tfvars.example" << EOT
+github_token = "your-github-token-here"
+EOT
+  
+  echo -e "${GREEN}Project '$PROJECT' created successfully.${NC}"
+  echo -e "Next steps:"
+  echo -e "  1. Edit $TF_DIR/projects/$PROJECT/main.tf to add your resources"
+  echo -e "  2. Create $TF_DIR/projects/$PROJECT/terraform.tfvars with your variables"
+  echo -e "  3. Run: $0 init $PROJECT"
+}
+
+# Clean Terraform files
+clean_project() {
+  if [ -z "$PROJECT" ]; then
+    echo -e "${RED}Error: Project name is required.${NC}"
+    show_help
+    exit 1
+  fi
+  
+  if [ ! -d "$TF_DIR/projects/$PROJECT" ]; then
+    echo -e "${RED}Error: Project '$PROJECT' does not exist.${NC}"
+    exit 1
+  }
+  
+  echo -e "${YELLOW}Cleaning Terraform files for project: $PROJECT${NC}"
+
+
+
+Retry
+
+Continue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Comprehensive Linux Environment Setup - Claude

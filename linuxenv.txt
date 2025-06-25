@@ -1,0 +1,144 @@
+Skip to content
+Chat history
+
+
+ChatGPT
+ChatGPT
+Sora icon
+Sora
+Library
+GPT Icon
+API Builder 👉🏼 OpenAPI Schema
+
+
+GPT Icon
+Data
+
+
+GPT Icon
+App Builder GPT — Web, iOS, Android App Creator
+
+
+GPT Icon
+Scholar AI
+
+
+
+1 more
+Explore GPTs
+
+tools
+
+See All
+
+bank interface
+
+
+standards
+
+
+data
+
+
+app still
+
+Today
+Exporting Project Data
+
+Portable Tool Chat Ingestion
+
+Yesterday
+KB Backup Script Review
+
+App Setup and Organization
+
+Previous 7 Days
+Monetary Policy and Spending
+
+Turkey Economic Policy Analysis
+
+Costa Rica Economía 2019-2023
+
+Costa Rica Fiscal Policy Analysis
+
+Previous 30 Days
+Firebase Monorepo Setup
+
+Multi-context server setup
+
+View plans
+Unlimited access, team features, and more
+You said:
+Using all the chats in this group create a bootstrap to self an environment in Linux completely interactive and with all configurations and scripting
+ChatGPT said:
+
+Thought
+You said:
+Optimize this prompt for maximum effectiveness
+ChatGPT said:
+
+Thought for 11 seconds
+Here’s a more focused, specific prompt that will guide an AI (or yourself) to build a fully interactive, idempotent Linux bootstrap script with all the pieces you’ve discussed:
+
+I want you to generate a **fully automated, interactive Bash bootstrap** for a Debian-based Linux environment that, when run for the first time or subsequent times, will:
+
+1. **Pre-flight checks**
+   - Detect existing installations (Git, Docker/LXC, Node.js, Python, PostgreSQL, Supabase CLI, etc.) and skip or upgrade as needed.
+   - Validate internet connectivity and required permissions (sudo).
+
+2. **Core system setup**
+   - Update apt repositories and install core packages (build-essential, curl, wget, git, zsh, fish, etc.).
+   - Configure locales, timezone (America/Chicago), and timezone sync.
+
+3. **Shell & theme configuration**
+   - Install and configure Zsh (with Oh My Zsh) or Fish, set as default shell.
+   - Apply dark-mode color schemes, custom PS1, syntax highlighting, autosuggestions.
+   - Deploy a central `~/.dotfiles` repo (via Git) and symlink all config files.
+
+4. **Git & GitHub CLI**
+   - Prompt for Git username, email, and SSH key settings.
+   - Generate SSH key if none exists, add to ssh-agent, and copy public key to clipboard.
+   - Install and configure GitHub CLI (`gh`) and authenticate via `gh auth login`.
+   - Scaffold a new repo with `gh repo create`, apply your standard repo template, enable webhooks.
+
+5. **Language environments**
+   - Install Node.js (via nvm), NPM global packages: ESLint (strict), Prettier, Typescript, etc., and configure `eslint --init`.
+   - Install Python (via pyenv), pip-global packages: black, flake8, poetry.
+
+6. **Database & cloud tools**
+   - Install and configure PostgreSQL, psql shortcuts, create a default database/user.
+   - Install Supabase CLI and configure authentication.
+   - (Optionally) Install Terraform and configure a minimal backend (or skip if not using).
+
+7. **Linting & formatting**
+   - Create or copy global `.eslintrc.json`, `.prettierrc`, `.editorconfig`.
+   - Integrate `--fix` hooks via Husky / pre-commit.
+
+8. **Cron & automation**
+   - Install `cron`, deploy example cron jobs (e.g., daily backup script).
+   - Ensure idempotency: don’t duplicate entries.
+
+9. **Hook framework for future installs**
+   - Define a `hooks.d/` directory where new scripts can be dropped and automatically run.
+   - Provide functions to register/unregister hooks.
+
+10. **Final validation & summary**
+    - Run a suite of tests (lint, syntax checks) against all generated configs.
+    - Print a summary of what was installed or skipped.
+    - Offer next steps or “Press ENTER to reboot/apply changes.”
+
+**Please output**:
+- The complete, well-commented Bash script.
+- A step-by-step explanation of how it works and how to extend it.
+Feel free to adjust any section to match your exact requirements!
+
+
+
+
+
+Search
+
+
+
+No file chosenNo file chosen
+ChatGPT can make mistakes. Check important info.
